@@ -1,0 +1,45 @@
+# D3 Edge enforcement via Caddy's built-in forward_auth — config only, no
+# custom build. Copy the two pieces below into your Caddyfile and set
+# D3_EDGE_ADAPTER_KEY in Caddy's environment. See README.md in this directory.
+
+# ---- 1. The decision gateway (one per Caddyfile) ---------------------------
+# forward_auth cannot fail open on its own: any upstream error is returned to
+# the visitor as-is. This local hop converts "the decision endpoint is down or
+# slow" into a 200 fail-open before forward_auth can see an error, so an
+# outage on D3's side never takes your site down.
+http://127.0.0.1:8113 {
+	reverse_proxy https://edge-api.d3.com {
+		header_up Host edge-api.d3.com
+		transport http {
+			# The whole decision budget: a hung endpoint degrades like a down one.
+			response_header_timeout 150ms
+		}
+	}
+	handle_errors {
+		header x-d3-edge fail-open
+		respond 200
+	}
+}
+
+# ---- 2. The check (inside each site you want covered) -----------------------
+example.com {
+	forward_auth 127.0.0.1:8113 {
+		uri /v1/forward-auth
+		# Your org's adapter key (dashboard → Keys), from Caddy's environment.
+		header_up x-d3-adapter-key {env.D3_EDGE_ADAPTER_KEY}
+		# The pinned client IP — the endpoint never trusts X-Forwarded-For.
+		header_up X-Real-IP {client_ip}
+		# Never ours to see.
+		header_up -Cookie
+		header_up -Authorization
+		header_up -Proxy-Authorization
+		# A visitor must not pin its own tuple, key, or digest.
+		header_up -x-d3-method
+		header_up -x-d3-host
+		header_up -x-d3-uri
+		header_up -x-d3-content-digest
+	}
+
+	# ...the rest of your site config, e.g.:
+	reverse_proxy backend:3000
+}
