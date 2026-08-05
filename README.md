@@ -15,6 +15,13 @@ times out, so an outage on our side never takes your site down.
 | [`cloudflare-worker/`](./cloudflare-worker)   | Standalone Worker template fronting a site hosted outside Cloudflare             |
 | [`nginx/`](./nginx)                           | Access-phase Lua script for OpenResty / nginx with the Lua module                |
 
+All of them speak one contract, specified in
+[`PROTOCOL.md`](./PROTOCOL.md): the decision payload, the response, the
+`Content-Digest` rule, and the behavior — fail-open, timeout budget,
+`403` shape — an adapter has to get right. Read it to write an adapter
+for a platform we don't cover yet, or to see exactly what leaves your
+infrastructure.
+
 The npm SDKs —
 [`@d3-inc/d3-edge-cloudflare-adapter`](https://www.npmjs.com/package/@d3-inc/d3-edge-cloudflare-adapter)
 (wrap an existing Worker, or deploy standalone) and
