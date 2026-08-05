@@ -1,0 +1,14 @@
+# D3 Edge enforcement worker. Deployed unrouted; attach your hostname in the
+# Cloudflare dashboard afterwards (Settings → Domains & Routes → add route).
+name = "d3-edge"
+main = "src/index.ts"
+compatibility_date = "2025-06-01"
+
+# No workers.dev URL: unrouted, this worker would proxy any request it is sent.
+# It only ever runs attached to your hostname.
+workers_dev = false
+
+[vars]
+POLICY_WORKER_URL = "https://edge-api.d3.com/v1/decision"
+POLICY_TIMEOUT_MS = "500"
+FAIL_MODE = "open"

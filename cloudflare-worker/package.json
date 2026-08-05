@@ -1,0 +1,16 @@
+{
+  "name": "d3-edge-worker",
+  "private": true,
+  "description": "D3 Edge bot-auth enforcement worker — deploys in front of a site whose origin is outside Cloudflare.",
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev"
+  },
+  "dependencies": {
+    "@d3-inc/d3-edge-cloudflare-adapter": "^0.2.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.118.0"
+  }
+}

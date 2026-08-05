@@ -1,0 +1,3 @@
+# Your org's adapter key — create one at https://dashboard.d3.com/keys.
+# The deploy flow stores it as a Worker secret; it never lands in code.
+POLICY_ADAPTER_KEY=d3_k_…
