@@ -11,7 +11,7 @@ times out, so an outage on our side never takes your site down.
 
 | Directory                                    | What it is                                                                       |
 | -------------------------------------------- | -------------------------------------------------------------------------------- |
-| [`cloudflare-snippet/`](./cloudflare-snippet) | A single pasted file for Cloudflare zones — no Worker deploy (paid plans)        |
+| [`cloudflare-snippet/`](./cloudflare-snippet) | A single pasted file for Cloudflare zones — no Worker deploy (paid plans). Traffic sampling built in |
 | [`cloudflare-worker/`](./cloudflare-worker)   | Standalone Worker template fronting a site hosted outside Cloudflare             |
 | [`nginx/`](./nginx)                           | Access-phase Lua script for OpenResty / nginx with the Lua module                |
 

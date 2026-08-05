@@ -14,6 +14,11 @@ const CONFIG = {
   timeoutMs: 150,
   // 'open' passes traffic when the decision call fails; 'closed' blocks instead.
   failMode: 'open',
+  // Fraction of requests that get a decision call. Unsampled requests return
+  // untouched — no call, no x-d3-edge header.
+  sampleRate: 1,
+  // Call on every request carrying signature headers, whatever sampleRate says.
+  alwaysSampleSigned: false,
 };
 
 export default createSnippet(CONFIG);
@@ -40,6 +45,9 @@ export function createSnippet(config) {
     // waitUntil, so the request is logged at decision time and nothing more.
     async fetch(request) {
       if (!config.policyWorkerUrl) return withEdgeHeader(await fetch(request), 'disabled');
+      // No Response clone and no header either: an unsampled request costs
+      // what the snippet costs uninstalled.
+      if (!isSampled(request, config)) return fetch(request);
 
       let decision;
       try {
@@ -68,6 +76,14 @@ export function createSnippet(config) {
       return withEdgeHeader(await fetch(request), 'pass');
     },
   };
+}
+
+function isSampled(request, config) {
+  if (Math.random() < config.sampleRate) return true;
+  return (
+    config.alwaysSampleSigned &&
+    (request.headers.has('signature') || request.headers.has('signature-input'))
+  );
 }
 
 async function extractPayload(request) {

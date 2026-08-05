@@ -36,6 +36,8 @@ const BASE_CONFIG: SnippetConfig = {
   adapterKey: KEY,
   timeoutMs: 1000,
   failMode: 'open',
+  sampleRate: 1,
+  alwaysSampleSigned: false,
 };
 
 afterEach(() => {
@@ -212,6 +214,49 @@ describe('fail-open (enforcement failure must never take the site down)', () => 
     expect(res.status).toBe(403);
     expect(res.headers.get('x-d3-edge')).toBe('fail-closed');
     expect(log.originCalls).toHaveLength(0);
+  });
+});
+
+describe('traffic sampling', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('should return an unsampled request untouched: no call, no header', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.99);
+    const log = stubOutbound({ action: 'pass' });
+    const res = await run(siteRequest(), { sampleRate: 0.05 });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('origin says hi');
+    expect(res.headers.get('x-d3-edge')).toBeNull();
+    expect(log.policyCalls).toHaveLength(0);
+    expect(log.originCalls).toHaveLength(1);
+  });
+
+  it('should call and tag a request that wins the sample draw', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.01);
+    const log = stubOutbound({ action: 'pass' });
+    const res = await run(siteRequest(), { sampleRate: 0.05 });
+    expect(res.headers.get('x-d3-edge')).toBe('pass');
+    expect(log.policyCalls).toHaveLength(1);
+  });
+
+  it('should always sample signed requests when alwaysSampleSigned is set', async () => {
+    const log = stubOutbound({ action: 'pass' });
+    const res = await run(siteRequest({ headers: { 'signature-input': 'sig1=("@authority")' } }), {
+      sampleRate: 0,
+      alwaysSampleSigned: true,
+    });
+    expect(res.headers.get('x-d3-edge')).toBe('pass');
+    expect(log.policyCalls).toHaveLength(1);
+  });
+
+  it('should not exempt signed requests from sampling by default', async () => {
+    const log = stubOutbound({ action: 'pass' });
+    const res = await run(siteRequest({ headers: { 'signature-input': 'sig1=("@authority")' } }), {
+      sampleRate: 0,
+    });
+    expect(res.headers.get('x-d3-edge')).toBeNull();
+    expect(log.policyCalls).toHaveLength(0);
+    expect(log.originCalls).toHaveLength(1);
   });
 });
 
