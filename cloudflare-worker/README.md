@@ -6,7 +6,7 @@ asks your D3 Edge policy for a decision, then passes the request on to
 your site or answers `403`. If the check errors or times out, traffic
 passes: an outage on our side never takes your site down.
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/d3-inc/d3-edge-worker-template)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/d3-inc/d3-edge-adapters/tree/main/cloudflare-worker)
 
 The deploy flow asks for one secret, `POLICY_ADAPTER_KEY` — create the
 key at [dashboard.d3.com/keys](https://dashboard.d3.com/keys)
@@ -36,8 +36,6 @@ reference](https://ai.d3.com/docs/sdks/cloudflare#configuration-reference).
 
 ## About this template
 
-This directory is the canonical copy;
-[`d3-edge-worker-template`](https://github.com/d3-inc/d3-edge-worker-template)
-mirrors it so the deploy button has a repo of its own to clone. Issues
-are welcome; for anything else, write to
-[hello@d3.com](mailto:hello@d3.com).
+The deploy button clones just this directory into your GitHub account
+as a new repo — you own it from there. Issues are welcome; for anything
+else, write to [hello@d3.com](mailto:hello@d3.com).
