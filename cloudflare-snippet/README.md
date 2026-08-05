@@ -22,24 +22,27 @@ response carries an `x-d3-edge` header once it is.
 
 ## Configuration
 
-`CONFIG` at the top of the file, mapping one-to-one onto the worker
-adapters' variables:
+`CONFIG` at the top of the file, mapping onto the worker adapters'
+variables where they exist:
 
-| Constant          | Worker equivalent    | Default | What it does                                                        |
-| ----------------- | -------------------- | ------- | -------------------------------------------------------------------- |
-| `policyWorkerUrl` | `POLICY_WORKER_URL`  | set     | Decision endpoint. **Empty string means pure passthrough.**          |
-| `adapterKey`      | `POLICY_ADAPTER_KEY` | —       | Your org's key, bearer for the decision call.                        |
-| `timeoutMs`       | `POLICY_TIMEOUT_MS`  | `150`   | Hard budget for the decision call.                                   |
-| `failMode`        | `FAIL_MODE`          | `open`  | `open`: pass traffic when the call fails. `closed`: block instead.   |
+| Constant             | Worker equivalent    | Default | What it does                                                                             |
+| -------------------- | -------------------- | ------- | ----------------------------------------------------------------------------------------- |
+| `policyWorkerUrl`    | `POLICY_WORKER_URL`  | set     | Decision endpoint. **Empty string means pure passthrough.**                               |
+| `adapterKey`         | `POLICY_ADAPTER_KEY` | —       | Your org's key, bearer for the decision call.                                             |
+| `timeoutMs`          | `POLICY_TIMEOUT_MS`  | `150`   | Hard budget for the decision call.                                                        |
+| `failMode`           | `FAIL_MODE`          | `open`  | `open`: pass traffic when the call fails. `closed`: block instead.                        |
+| `sampleRate`         | —                    | `1`     | Fraction of requests that get a decision call. Unsampled requests return untouched.       |
+| `alwaysSampleSigned` | —                    | `false` | Call on every request carrying signature headers, whatever `sampleRate` says.             |
 
 `ORIGIN` and `ORIGIN_URL` don't exist here: pass-traffic continues to
 whatever your zone already routes to.
 
 ## Response shape
 
-Every response carries an `x-d3-edge` header: `disabled`, `pass`,
-`block`, `fail-open`, or `fail-closed`. A blocked request gets a `403`
-with a JSON body:
+Every sampled response carries an `x-d3-edge` header: `disabled`,
+`pass`, `block`, `fail-open`, or `fail-closed`. An unsampled request
+(`sampleRate` below `1`) returns untouched, with no header at all. A
+blocked request gets a `403` with a JSON body:
 
 ```json
 { "blocked": true, "ruleId": "…", "tier": "…", "identity": "…" }
@@ -47,7 +50,16 @@ with a JSON body:
 
 ## Notes
 
-- The snippet makes one call per request — the decision call. There is
+- There is no observe-only switch in the snippet. Observe-only is a
+  policy posture: with a `log-only` policy in the dashboard (the
+  default), every decision comes back `pass` — traffic is recorded,
+  nothing blocks. The snippet just acts on the verdict it's given.
+- With `sampleRate` below `1`, most responses carry no `x-d3-edge`
+  header, so a plain `curl` is an unreliable install check. Set
+  `alwaysSampleSigned: true` and send
+  `curl -sI -H 'signature-input: x' https://www.example.com/` — that
+  request is guaranteed a decision call and comes back tagged.
+- The snippet makes one call per sampled request — the decision call. There is
   no after-response outcome report (Snippets have no `waitUntil`);
   requests are classified and logged at decision time.
 - Signed request bodies over 1 MB — an agent uploading a large file,

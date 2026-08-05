@@ -13,6 +13,10 @@ export interface SnippetConfig {
   timeoutMs: number;
   /** 'open' passes traffic when the decision call fails; 'closed' blocks instead. */
   failMode: 'open' | 'closed';
+  /** Fraction of requests that get a decision call. Unsampled requests return untouched. */
+  sampleRate: number;
+  /** Call on every request carrying signature headers, whatever sampleRate says. */
+  alwaysSampleSigned: boolean;
 }
 
 export function createSnippet(config: SnippetConfig): {
