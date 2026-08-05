@@ -187,16 +187,20 @@ request's method onto the subrequest.
 ### Request
 
 The original request rides in headers. The endpoint reads the first
-complete convention of these three:
+complete convention of these two — only headers the proxy itself
+overwrites, because the proxy also copies the client's own headers onto
+the side-request, and a visitor-settable convention would let a visitor
+describe a different request than the one they made:
 
-| Convention        | Headers                                                         | Set by                         |
-| ----------------- | --------------------------------------------------------------- | ------------------------------ |
-| `X-Forwarded-*`   | `X-Forwarded-Method`, `X-Forwarded-Host`, `X-Forwarded-Uri`     | Caddy, Traefik; nginx recipes  |
-| explicit `x-d3-*` | `x-d3-method`, `x-d3-host`, `x-d3-uri` (wins over the others)   | Recipes that build it by hand  |
-| `X-Original-*`    | `X-Original-URL` (absolute) + `X-Original-Method`               | ingress-nginx convention       |
+| Convention      | Headers                                                     | Set by                        |
+| --------------- | ----------------------------------------------------------- | ----------------------------- |
+| `X-Forwarded-*` | `X-Forwarded-Method`, `X-Forwarded-Host`, `X-Forwarded-Uri` | Caddy, Traefik; nginx recipes |
+| `X-Original-*`  | `X-Original-URL` (absolute) + `X-Original-Method`           | ingress-nginx convention      |
 
-The client IP comes only from a recipe-pinned `X-Real-IP` or
-`X-Client-IP`; raw `X-Forwarded-For` is client-spoofable and deliberately
+A recipe that builds the tuple by hand sets the `X-Forwarded-*` headers.
+
+The client IP comes only from a recipe-pinned `X-Real-IP`; raw
+`X-Forwarded-For` is client-spoofable and deliberately
 never read. The client's own headers — the signature set from [Which
 headers to forward](#which-headers-to-forward) — arrive because the proxy
 copies them onto the side-request; recipes must strip `Cookie`,
