@@ -1,10 +1,14 @@
 # The decision protocol
 
 Every adapter in this repo — and every one you write yourself — speaks the
-same contract to the D3 Edge decision endpoint: one JSON `POST` per
-request, in, a `pass` or `block` out. This page is that contract. If you
-are installing an existing adapter you don't need it; read it to write a
-new one, or to understand exactly what leaves your infrastructure.
+same contract to the D3 Edge decision endpoint: one call per request in, a
+`pass` or `block` out. There are two dialects of that call. Adapters that
+run code send a JSON `POST` (everything below, until the last section);
+proxies with a native auth hook send a forward-auth subrequest instead
+([the forward-auth dialect](#the-forward-auth-dialect)). This page is
+that contract. If you are installing an existing adapter you don't need
+it; read it to write a new one, or to understand exactly what leaves
+your infrastructure.
 
 Nothing here is negotiated or versioned per adapter. The endpoint accepts
 unknown payload fields and adapters must ignore unknown response fields,
@@ -161,6 +165,74 @@ logged and swallowed — a report never affects a response.
 
 Adapters that cannot defer work past the response (Cloudflare Snippets,
 config-only proxies) simply skip this. Enforcement does not depend on it.
+
+## The forward-auth dialect
+
+Most proxies ship a native hook for exactly this shape — Caddy
+`forward_auth`, nginx `auth_request`, Traefik `ForwardAuth`, Envoy
+`ext_authz` — where the proxy sends a side-request per request and reads
+the status code. The endpoint speaks that dialect directly, which makes
+those proxies config-file installs with no adapter code at all:
+
+```
+GET https://edge-api.d3.com/v1/forward-auth
+x-d3-adapter-key: <your adapter key>
+```
+
+The key rides in `x-d3-adapter-key`, never `Authorization` — proxies
+forward the end user's own `Authorization` header, so the bearer slot is
+taken. The route accepts any method: some hooks mirror the original
+request's method onto the subrequest.
+
+### Request
+
+The original request rides in headers. The endpoint reads the first
+complete convention of these three:
+
+| Convention        | Headers                                                         | Set by                         |
+| ----------------- | --------------------------------------------------------------- | ------------------------------ |
+| `X-Forwarded-*`   | `X-Forwarded-Method`, `X-Forwarded-Host`, `X-Forwarded-Uri`     | Caddy, Traefik; nginx recipes  |
+| explicit `x-d3-*` | `x-d3-method`, `x-d3-host`, `x-d3-uri` (wins over the others)   | Recipes that build it by hand  |
+| `X-Original-*`    | `X-Original-URL` (absolute) + `X-Original-Method`               | ingress-nginx convention       |
+
+The client IP comes only from a recipe-pinned `X-Real-IP` or
+`X-Client-IP`; raw `X-Forwarded-For` is client-spoofable and deliberately
+never read. The client's own headers — the signature set from [Which
+headers to forward](#which-headers-to-forward) — arrive because the proxy
+copies them onto the side-request; recipes must strip `Cookie`,
+`Authorization`, `Proxy-Authorization`, and any inbound `x-d3-*`.
+`requestId` is generated server-side, and there are no outcome reports —
+there is no adapter code to send one.
+
+### Response
+
+The status code is the whole answer:
+
+| Status | Meaning                                                                                                             |
+| ------ | -------------------------------------------------------------------------------------------------------------------- |
+| `200`  | Continue. `x-d3-edge: pass` — or `x-d3-edge: fail-open` plus an `x-d3-reason` when the endpoint fell back (see below). |
+| `403`  | Deny. The JSON block body from [What an adapter must do](#what-an-adapter-must-do), plus `x-d3-rule-id` / `x-d3-tier` headers — nginx discards a deny body; Caddy, Traefik, and Envoy return it to the visitor verbatim. |
+
+Nothing else is ever returned on purpose. In particular, **a dead,
+revoked, or missing adapter key answers `200` with `x-d3-edge:
+fail-open`, never `401`** — a proxy can't tell "block this bot" from
+"your key expired," and an auth error would deny every visitor on the
+site. The same applies to a malformed subrequest (`x-d3-reason:
+malformed-tuple`): misconfiguration fails open, loudly, on our side.
+Fail-open moves server-side in this dialect; the proxy-side recipe still
+needs its own fail-open for the case where the endpoint is unreachable
+(each recipe documents its pattern).
+
+### The body is usually unattested
+
+The side-request is body-less on most proxies, so a `content-digest` on
+a signed `POST`/`PUT` is the client's claim, checked by nobody. The
+signature still proves the signer, but not the message: those verdicts
+are capped at `claimed` with reason `body-unattested` instead of
+`proven`. `GET`/`HEAD` — nearly all agent traffic — are unaffected.
+Proxies that can forward the raw body (Traefik `forwardBody`, Envoy
+`with_request_body`) escape the cap: the endpoint hashes what it
+receives and verifies fully.
 
 ## Writing a new adapter
 

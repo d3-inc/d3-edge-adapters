@@ -13,7 +13,9 @@ times out, so an outage on our side never takes your site down.
 | -------------------------------------------- | -------------------------------------------------------------------------------- |
 | [`cloudflare-snippet/`](./cloudflare-snippet) | A single pasted file for Cloudflare zones — no Worker deploy (paid plans). Traffic sampling built in |
 | [`cloudflare-worker/`](./cloudflare-worker)   | Standalone Worker template fronting a site hosted outside Cloudflare             |
+| [`caddy/`](./caddy)                           | Config-only recipe for Caddy's built-in `forward_auth` — no plugin, no build     |
 | [`nginx/`](./nginx)                           | Access-phase Lua script for OpenResty / nginx with the Lua module                |
+| [`nginx-auth-request/`](./nginx-auth-request) | Config-only recipe for stock nginx via `auth_request` — no Lua required          |
 
 All of them speak one contract, specified in
 [`PROTOCOL.md`](./PROTOCOL.md): the decision payload, the response, the
