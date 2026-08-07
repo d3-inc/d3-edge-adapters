@@ -7,7 +7,12 @@
 # the visitor as-is. This local hop converts "the decision endpoint is down or
 # slow" into a 200 fail-open before forward_auth can see an error, so an
 # outage on D3's side never takes your site down.
-http://127.0.0.1:8113 {
+# `http://:8113` + bind, NOT `http://127.0.0.1:8113`: the subrequest carries
+# the visitor's Host, and a hostname-scoped address only matches Host
+# 127.0.0.1 — every real request would get Caddy's empty 200 for unmatched
+# hosts, which forward_auth reads as a pass without ever calling D3.
+http://:8113 {
+	bind 127.0.0.1
 	reverse_proxy https://edge-api.d3.com {
 		header_up Host edge-api.d3.com
 		transport http {
