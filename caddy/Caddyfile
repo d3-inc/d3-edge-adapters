@@ -17,7 +17,8 @@ http://:8113 {
 		header_up Host edge-api.d3.com
 		transport http {
 			# The whole decision budget: a hung endpoint degrades like a down one.
-			response_header_timeout 150ms
+			# 500ms covers a cold isolate; a canceled call is never logged.
+			response_header_timeout 500ms
 		}
 	}
 	handle_errors {

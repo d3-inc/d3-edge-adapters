@@ -33,7 +33,7 @@ Enforcement breaking must never take your site down — but `forward_auth`
 returns any upstream error straight to the visitor, which is fail-
 *closed*. The recipe's local gateway hop is what inverts that:
 `forward_auth` talks to `127.0.0.1:8113`, which proxies to the real
-endpoint with a hard 150 ms budget, and its `handle_errors` block turns
+endpoint with a hard 500 ms budget, and its `handle_errors` block turns
 a dead, unreachable, or hung endpoint into `200` + `x-d3-edge:
 fail-open`. Two failure modes remain server-side by design: a dead or
 revoked adapter key also answers `200 fail-open` (never `401` — the

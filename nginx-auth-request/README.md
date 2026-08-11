@@ -43,7 +43,7 @@ the recipe carry that, and each one is load-bearing:
   untouched.
 - **`auth_request off` inside the fallback** — without it the fallback
   re-runs the check and loops.
-- **The 150 ms timeouts** — a hung endpoint must degrade like a down
+- **The 500 ms timeouts** — a hung endpoint must degrade like a down
   one, inside the same budget every D3 Edge adapter uses.
 
 Two failure modes stay server-side by design: a dead or revoked adapter
