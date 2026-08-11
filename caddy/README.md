@@ -48,7 +48,7 @@ service to keep alive.
 `forward_auth` copies the visitor's request headers onto the
 side-request. The recipe strips what we must never receive (`Cookie`,
 `Authorization`, `Proxy-Authorization`) and pins what we must be able to
-trust (`X-Real-IP`, the adapter key, no client-set `x-d3-*`). Note this
+trust (`x-d3-real-ip`, the adapter key, no client-set `x-d3-*`). Note this
 is remove-what-you-name: an unusual header the recipe doesn't strip
 would still reach us. If you need keep-only-what-you-name semantics, use
 a proxy with a true allowlist (Envoy's `headersToExtAuth`).

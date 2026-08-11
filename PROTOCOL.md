@@ -199,9 +199,10 @@ describe a different request than the one they made:
 
 A recipe that builds the tuple by hand sets the `X-Forwarded-*` headers.
 
-The client IP comes only from a recipe-pinned `X-Real-IP`; raw
-`X-Forwarded-For` is client-spoofable and deliberately
-never read. The client's own headers — the signature set from [Which
+The client IP comes only from a recipe-pinned `x-d3-real-ip`; raw
+`X-Forwarded-For` is client-spoofable and deliberately never read, and
+`X-Real-IP` cannot be used — Cloudflare-fronted endpoints rewrite it to
+the connecting IP, which is the enforcement point's own egress. The client's own headers — the signature set from [Which
 headers to forward](#which-headers-to-forward) — arrive because the proxy
 copies them onto the side-request; recipes must strip `Cookie`,
 `Authorization`, `Proxy-Authorization`, and any inbound `x-d3-*`.
