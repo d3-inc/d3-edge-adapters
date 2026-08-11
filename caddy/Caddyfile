@@ -34,7 +34,9 @@ example.com {
 		# Your org's adapter key (dashboard → Keys), from Caddy's environment.
 		header_up x-d3-adapter-key {env.D3_EDGE_ADAPTER_KEY}
 		# The pinned client IP — the endpoint never trusts X-Forwarded-For.
-		header_up X-Real-IP {client_ip}
+		# x-d3-real-ip, not X-Real-IP: Cloudflare-fronted endpoints rewrite
+		# X-Real-IP to the connecting IP (your server), never the visitor.
+		header_up x-d3-real-ip {client_ip}
 		# Never ours to see.
 		header_up -Cookie
 		header_up -Authorization

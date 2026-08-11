@@ -55,7 +55,7 @@ from a block), tagged `x-d3-reason` and worth alerting on.
 The subrequest inherits the visitor's request headers. The recipe
 clears what we must never receive (`Cookie`, `Authorization`,
 `Proxy-Authorization`) and pins what we must be able to trust
-(`X-Real-IP`, the adapter key, no client-set `x-d3-*`). Note this is
+(`x-d3-real-ip`, the adapter key, no client-set `x-d3-*`). Note this is
 remove-what-you-name: an unusual header the recipe doesn't clear would
 still reach us.
 
