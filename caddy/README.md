@@ -71,7 +71,25 @@ only signed agent traffic (tiny volume, the traffic D3 Edge exists for):
 	}
 ```
 
-Widen the matcher when you're ready for more.
+Or ramp by volume — send a fixed fraction of *all* traffic to the
+endpoint. `{http.request.uuid}` is a per-request UUIDv4, and lowercase
+hex sorts the same lexicographically as numerically, so comparing it
+against a 4-hex-digit threshold passes a uniform `threshold / 65536` —
+no state, no per-request cost beyond the random bytes Caddy already
+generates. An unsampled request skips the call entirely: no decision,
+nothing logged, no `x-d3-edge` header.
+
+```caddyfile
+	# Full coverage by default; dial down to ramp: "8000" = 50%, "1999" ≈ 10%,
+	# "028f" ≈ 1%. "ffff" ≈ 100% — or just drop the matcher, as in section 2.
+	@d3_sampled expression `{http.request.uuid} < "ffff"`
+	forward_auth @d3_sampled 127.0.0.1:8113 {
+		# ...same block as above
+	}
+```
+
+Start low and raise the threshold — or widen the matcher — when you're
+ready for more.
 
 ## Verifying it works
 

@@ -51,3 +51,32 @@ example.com {
 	# ...the rest of your site config, e.g.:
 	reverse_proxy backend:3000
 }
+
+# ---- 3. Ramp-up: sample a fraction of traffic (optional) --------------------
+# forward_auth takes a matcher, so gate it to send only some requests to the
+# decision endpoint. {http.request.uuid} is a per-request UUIDv4, and lowercase
+# hex sorts the same lexicographically as numerically, so comparing it against a
+# 4-hex-digit threshold passes a uniform fraction — threshold/65536, with no
+# state and no per-request cost beyond the random bytes Caddy already generates.
+# An unsampled request skips the call entirely: no decision, nothing logged, no
+# x-d3-edge header — it costs what an uninstalled check costs. Default to full
+# coverage ("ffff", ~100%, or just drop the matcher as in section 2) and dial
+# down to ramp: "8000" = 50%, "1999" ≈ 10% (0x1999 / 0x10000), "028f" ≈ 1%.
+sampled.example.com {
+	@d3_sampled expression `{http.request.uuid} < "ffff"`
+	forward_auth @d3_sampled 127.0.0.1:8113 {
+		# ...same block as section 2
+		uri /v1/forward-auth
+		header_up x-d3-adapter-key {env.D3_EDGE_ADAPTER_KEY}
+		header_up x-d3-real-ip {client_ip}
+		header_up -Cookie
+		header_up -Authorization
+		header_up -Proxy-Authorization
+		header_up -x-d3-method
+		header_up -x-d3-host
+		header_up -x-d3-uri
+		header_up -x-d3-content-digest
+	}
+
+	reverse_proxy backend:3000
+}
