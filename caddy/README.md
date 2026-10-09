@@ -59,6 +59,22 @@ capped verdict (`claimed`, reason `body-unattested`) because nothing
 could check the body against its signed digest. `GET`/`HEAD` — nearly
 all agent traffic — are unaffected.
 
+## Paid routes (D3 Pay): not this recipe
+
+[D3 Pay](../PROTOCOL.md#paid-routes) needs an enforcement point that can
+answer `402` with a body, read a cookie by name, and strip a credential
+before the origin. `forward_auth` gives none of that: the dialect's whole
+answer is a status code, so the endpoint calls this recipe with paid
+routes switched off. **A priced route behind Caddy `forward_auth` is
+served as an ordinary pass — never paywalled, and never charged.**
+
+The deny body is the only part Caddy would in fact return verbatim; the
+rest — the session cookie, the budget, the receipt — has nowhere to go.
+If you price routes, enforce them with the [Cloudflare
+Snippet](../cloudflare-snippet), the [Lua adapter](../nginx), or a
+[worker install](https://ai.d3.com/docs/sdks/cloudflare). Bot-auth
+enforcement here is unaffected.
+
 ## Scoping and ramp-up
 
 `forward_auth` takes a matcher like any Caddy directive. To start with

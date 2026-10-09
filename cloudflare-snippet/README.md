@@ -25,14 +25,15 @@ response carries an `x-d3-edge` header once it is.
 `CONFIG` at the top of the file, mapping onto the worker adapters'
 variables where they exist:
 
-| Constant             | Worker equivalent    | Default | What it does                                                                             |
-| -------------------- | -------------------- | ------- | ----------------------------------------------------------------------------------------- |
-| `policyWorkerUrl`    | `POLICY_WORKER_URL`  | set     | Decision endpoint. **Empty string means pure passthrough.**                               |
-| `adapterKey`         | `POLICY_ADAPTER_KEY` | —       | Your org's key, bearer for the decision call.                                             |
-| `timeoutMs`          | `POLICY_TIMEOUT_MS`  | `150`   | Hard budget for the decision call.                                                        |
-| `failMode`           | `FAIL_MODE`          | `open`  | `open`: pass traffic when the call fails. `closed`: block instead.                        |
-| `sampleRate`         | —                    | `1`     | Fraction of requests that get a decision call. Unsampled requests return untouched.       |
-| `alwaysSampleSigned` | —                    | `false` | Call on every request carrying signature headers, whatever `sampleRate` says.             |
+| Constant             | Worker equivalent            | Default | What it does                                                                              |
+| -------------------- | ---------------------------- | ------- | ----------------------------------------------------------------------------------------- |
+| `policyWorkerUrl`    | `POLICY_WORKER_URL`          | set     | Decision endpoint. **Empty string means pure passthrough.**                               |
+| `adapterKey`         | `POLICY_ADAPTER_KEY`         | —       | Your org's key, bearer for the decision call.                                             |
+| `timeoutMs`          | `POLICY_TIMEOUT_MS`          | `150`   | Hard budget for the decision call.                                                        |
+| `paymentTimeoutMs`   | `POLICY_PAYMENT_TIMEOUT_MS`  | `10000` | Budget for a request presenting a payment — settlement happens inside it.                 |
+| `failMode`           | `FAIL_MODE`                  | `open`  | `open`: pass traffic when the call fails. `closed`: block instead.                        |
+| `sampleRate`         | —                            | `1`     | Fraction of requests that get a decision call. Unsampled requests return untouched.       |
+| `alwaysSampleSigned` | —                            | `false` | Call on every request carrying signature headers, whatever `sampleRate` says.             |
 
 `ORIGIN` and `ORIGIN_URL` don't exist here: pass-traffic continues to
 whatever your zone already routes to.
@@ -40,13 +41,46 @@ whatever your zone already routes to.
 ## Response shape
 
 Every sampled response carries an `x-d3-edge` header: `disabled`,
-`pass`, `block`, `fail-open`, or `fail-closed`. An unsampled request
-(`sampleRate` below `1`) returns untouched, with no header at all. A
-blocked request gets a `403` with a JSON body:
+`pass`, `block`, `fail-open`, `fail-closed`, `payment-required`, or
+`payment-redirect`. An unsampled request (`sampleRate` below `1`)
+returns untouched, with no header at all. A blocked request gets a `403`
+with a JSON body:
 
 ```json
 { "blocked": true, "ruleId": "…", "tier": "…", "identity": "…" }
 ```
+
+## Paid routes (D3 Pay)
+
+The snippet carries [D3 Pay](../PROTOCOL.md#paid-routes). If you price a
+route in the dashboard, an unpaid request gets the `402` the decision
+endpoint hands back — or a `302` to the pay app when a browser is
+navigating — and the page is served once the visitor's agent presents a
+credential:
+
+- **The credential is forwarded, never parsed.** A `__Host-d3pay`
+  cookie travels to the decision endpoint as a `d3pay-session` header,
+  on its own; the rest of the visitor's `Cookie` header never leaves
+  your zone. A `Payment-Authorization` header or a `?d3pay_handoff=` on
+  the URL works the same way for an agent with no cookie jar.
+- **A paying request gets its own budget** (`paymentTimeoutMs`, 10 s),
+  because settlement happens inside that call.
+- **A paying request never falls open.** Whatever `failMode` says, a
+  failed decision call on a request carrying a credential answers `502
+  {"error":"payment_unavailable"}`. The page is priced and the charge
+  may already have landed; serving it free is the one wrong answer.
+- **A paying request is never left to the sample draw.** `sampleRate`
+  does not apply to it — unsampled, someone would have paid for a page
+  that was then served to everyone free.
+- **Your origin never sees a credential.** The payment headers are
+  dropped, our cookie is taken out of `Cookie` (yours are left alone),
+  and `d3pay_handoff` is removed from the URL before the origin fetch.
+  The receipt and the session cookie are added to your origin's own
+  response, `Set-Cookie` appended rather than replaced.
+
+This costs no extra subrequest: it is the same decision call, reading a
+field it already returns. Nothing changes for a site with no priced
+routes.
 
 ## Notes
 
