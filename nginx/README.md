@@ -44,12 +44,13 @@ The script reads these from the environment nginx starts with — each
 one needs its `env` line in the main context, or nginx hides it from
 Lua:
 
-| Variable             | Type                 | Default | What it does                                                                  |
-| -------------------- | -------------------- | ------- | ----------------------------------------------------------------------------- |
-| `POLICY_WORKER_URL`  | string (URL)         | unset   | Decision endpoint. **Unset means pure passthrough**: the script does nothing. |
-| `POLICY_ADAPTER_KEY` | string               | unset   | Your org's key, bearer for the decision call.                                 |
-| `POLICY_TIMEOUT_MS`  | number (ms)          | `150`   | Hard budget for the decision call.                                            |
-| `FAIL_MODE`          | `"open" \| "closed"` | `open`  | `open`: pass traffic when the call fails. `closed`: block instead.            |
+| Variable                    | Type                 | Default | What it does                                                                  |
+| --------------------------- | -------------------- | ------- | ----------------------------------------------------------------------------- |
+| `POLICY_WORKER_URL`         | string (URL)         | unset   | Decision endpoint. **Unset means pure passthrough**: the script does nothing. |
+| `POLICY_ADAPTER_KEY`        | string               | unset   | Your org's key, bearer for the decision call.                                 |
+| `POLICY_TIMEOUT_MS`         | number (ms)          | `150`   | Hard budget for the decision call.                                            |
+| `POLICY_PAYMENT_TIMEOUT_MS` | number (ms)          | `10000` | Budget for a request presenting a payment — settlement happens inside it.     |
+| `FAIL_MODE`                 | `"open" \| "closed"` | `open`  | `open`: pass traffic when the call fails. `closed`: block instead.            |
 
 ## Response shape
 
@@ -64,3 +65,32 @@ with a JSON body:
 On pass, your upstream additionally receives the verdict as `X-D3-Tier`
 and `X-D3-Identity` request headers — set by the script on every pass,
 so a client can't spoof them past it.
+
+## Paid routes (D3 Pay)
+
+This install carries [D3 Pay](../PROTOCOL.md#paid-routes). If you price
+a route in the dashboard, the script answers an unpaid request with the
+`402` the decision endpoint hands back — or a `302` to the pay app when
+a browser is navigating — and serves the page once the visitor's agent
+presents a credential:
+
+- **The credential is forwarded, never parsed.** A `__Host-d3pay`
+  cookie travels to the decision endpoint as a `d3pay-session` header,
+  on its own; the rest of the visitor's `Cookie` header stays on your
+  server. A `Payment-Authorization` header or a `?d3pay_handoff=` on the
+  URL works the same way for an agent with no cookie jar.
+- **A paying request gets its own budget.** `POLICY_PAYMENT_TIMEOUT_MS`
+  (10 s) rather than `POLICY_TIMEOUT_MS`, because settlement happens
+  inside that call.
+- **A paying request never falls open.** Whatever `FAIL_MODE` says, a
+  failed decision call on a request carrying a credential answers `502
+  {"error":"payment_unavailable"}`. The page is priced and the charge may
+  already have landed; serving it free is the one wrong answer.
+- **Your upstream never sees a credential.** The payment headers are
+  cleared, our cookie is taken out of `Cookie` (yours are left alone),
+  and `d3pay_handoff` is removed from the query string before the
+  request is proxied. The receipt and the session cookie ride back on
+  your upstream's own response.
+
+Nothing changes for a site with no priced routes: the decision endpoint
+sends no payment instruction and the script never takes the path.

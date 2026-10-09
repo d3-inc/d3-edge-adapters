@@ -11,9 +11,13 @@ export interface SnippetConfig {
   adapterKey: string;
   /** Hard budget for the decision call, in milliseconds. */
   timeoutMs: number;
-  /** 'open' passes traffic when the decision call fails; 'closed' blocks instead. */
+  /** Budget for a request presenting a payment, in milliseconds — settlement happens inside it. */
+  paymentTimeoutMs: number;
+  /** 'open' passes traffic when the decision call fails; 'closed' blocks instead.
+   *  A request presenting a payment never falls open, whatever this says. */
   failMode: 'open' | 'closed';
-  /** Fraction of requests that get a decision call. Unsampled requests return untouched. */
+  /** Fraction of requests that get a decision call. Unsampled requests return
+   *  untouched; a request presenting a payment is always sampled. */
   sampleRate: number;
   /** Call on every request carrying signature headers, whatever sampleRate says. */
   alwaysSampleSigned: boolean;

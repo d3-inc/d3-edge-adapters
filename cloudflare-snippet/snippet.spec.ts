@@ -11,11 +11,18 @@ interface Verdict {
   identity?: string;
 }
 
+interface PaymentInstruction {
+  status?: number;
+  headers?: Record<string, string>;
+  body?: string;
+}
+
 interface ClientDecision {
   action: string;
   policyAction?: string;
   ruleId?: string;
   verdict?: Verdict;
+  payment?: PaymentInstruction;
 }
 
 interface RequestPayload {
@@ -35,10 +42,16 @@ const BASE_CONFIG: SnippetConfig = {
   policyWorkerUrl: POLICY_URL,
   adapterKey: KEY,
   timeoutMs: 1000,
+  paymentTimeoutMs: 5000,
   failMode: 'open',
   sampleRate: 1,
   alwaysSampleSigned: false,
 };
+
+// Shape only — the signature over it is the worker's to check, never the snippet's.
+const HANDOFF = `${'a'.repeat(22)}.${'b'.repeat(43)}`;
+
+const SESSION = 'c'.repeat(43);
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -50,7 +63,10 @@ interface FetchLog {
   otherCalls: string[];
 }
 
-function stubOutbound(decision: ClientDecision | { status: number } | 'hang'): FetchLog {
+function stubOutbound(
+  decision: ClientDecision | { status: number } | 'hang',
+  originInit?: ResponseInit
+): FetchLog {
   const log: FetchLog = { policyCalls: [], originCalls: [], otherCalls: [] };
   vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : new Request(input, init);
@@ -75,7 +91,7 @@ function stubOutbound(decision: ClientDecision | { status: number } | 'hang'): F
     // The snippet passes through via fetch(request): a Request input is the origin.
     if (input instanceof Request) {
       log.originCalls.push(request);
-      return new Response('origin says hi', { status: 200 });
+      return new Response('origin says hi', { status: 200, ...originInit });
     }
 
     log.otherCalls.push(request.url);
@@ -176,6 +192,181 @@ describe('content-digest attestation', () => {
     const log = stubOutbound({ action: 'pass' });
     await run(siteRequest());
     expect(log.policyCalls[0].payload.headers['content-digest']).toBeUndefined();
+  });
+});
+
+describe('D3 Pay', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  // The snippet never decodes a credential, so the budget it picks is the only
+  // observable sign that it recognized one.
+  function recordBudgets(): number[] {
+    const budgets: number[] = [];
+    const real = AbortSignal.timeout.bind(AbortSignal);
+    vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms: number) => {
+      budgets.push(ms);
+      return real(ms);
+    });
+    return budgets;
+  }
+
+  it('should forward the pay cookie as d3pay-session and no other cookie', async () => {
+    const log = stubOutbound({ action: 'pass' });
+    await run(siteRequest({ headers: { cookie: `sid=abc; __Host-d3pay=${SESSION}; theme=dark` } }));
+
+    const headers = log.policyCalls[0].payload.headers;
+    expect(headers['d3pay-session']).toBe(SESSION);
+    expect(headers['cookie']).toBeUndefined();
+  });
+
+  it('should spend the payment budget on a credential and the hot-path budget otherwise', async () => {
+    const budgets = recordBudgets();
+    stubOutbound({ action: 'pass' });
+
+    await run(siteRequest());
+    await run(siteRequest({ headers: { cookie: `__Host-d3pay=${SESSION}` } }));
+    await run(siteRequest({ headers: { 'payment-authorization': `Payment ${HANDOFF}` } }));
+    // A redemption carries its credential on the URL and nowhere else.
+    await run(siteRequest({ url: `https://ai.d3.com/page?d3pay_handoff=${HANDOFF}` }));
+
+    expect(budgets).toEqual([1000, 5000, 5000, 5000]);
+  });
+
+  it('should render the 402 the worker handed it, without reaching the origin', async () => {
+    const body = JSON.stringify({ error: 'handoff_pending', payUrl: 'https://pay.d3.com/pay?handoff=x' });
+    const log = stubOutbound({
+      action: 'pass',
+      payment: {
+        status: 402,
+        headers: { 'www-authenticate': 'Payment realm="ai.d3.com", method="d3-pay"' },
+        body,
+      },
+    });
+    const res = await run(siteRequest());
+
+    expect(res.status).toBe(402);
+    expect(await res.text()).toBe(body);
+    expect(res.headers.get('www-authenticate')).toBe('Payment realm="ai.d3.com", method="d3-pay"');
+    expect(res.headers.get('content-type')).toBe('application/json; charset=utf-8');
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(res.headers.get('x-d3-edge')).toBe('payment-required');
+    expect(log.originCalls).toHaveLength(0);
+  });
+
+  it('should send a navigating browser to the pay app without a JSON type on the redirect', async () => {
+    const log = stubOutbound({
+      action: 'pass',
+      payment: { status: 302, headers: { location: 'https://pay.d3.com/pay?handoff=x' } },
+    });
+    const res = await run(siteRequest({ headers: { 'sec-fetch-mode': 'navigate' } }));
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('https://pay.d3.com/pay?handoff=x');
+    expect(res.headers.get('content-type')).toBeNull();
+    expect(res.headers.get('x-d3-edge')).toBe('payment-redirect');
+    expect(log.originCalls).toHaveLength(0);
+  });
+
+  it('should drop a payment header the worker could not have authored', async () => {
+    stubOutbound({
+      action: 'pass',
+      payment: { status: 402, headers: { 'bad name': 'x', 'x-ok': 'fine', 'x-crlf': 'a\r\nb' } },
+    });
+    const res = await run(siteRequest());
+
+    expect(res.headers.get('x-ok')).toBe('fine');
+    expect(res.headers.get('x-crlf')).toBeNull();
+  });
+
+  it('should answer 502 rather than fall open when a paying request gets no decision', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const log = stubOutbound({ status: 500 });
+    const res = await run(siteRequest({ headers: { cookie: `__Host-d3pay=${SESSION}` } }));
+
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: 'payment_unavailable' });
+    expect(res.headers.get('x-d3-edge')).toBe('fail-closed');
+    expect(log.originCalls).toHaveLength(0);
+  });
+
+  it('should answer 502 for a timed-out redemption carrying its handoff on the URL', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const log = stubOutbound('hang');
+    const res = await run(siteRequest({ url: `https://ai.d3.com/page?d3pay_handoff=${HANDOFF}` }), {
+      paymentTimeoutMs: 20,
+    });
+
+    expect(res.status).toBe(502);
+    expect(log.originCalls).toHaveLength(0);
+  });
+
+  it('should let no credential reach the origin: header, cookie, or URL', async () => {
+    const log = stubOutbound({ action: 'pass' });
+    await run(
+      siteRequest({
+        url: `https://ai.d3.com/page?x=1&d3pay_handoff=${HANDOFF}`,
+        headers: {
+          cookie: `sid=abc; __Host-d3pay=${SESSION}`,
+          'payment-authorization': `Payment ${HANDOFF}`,
+          'x-payment': 'base64',
+        },
+      })
+    );
+
+    const origin = log.originCalls[0];
+    expect(origin.url).toBe('https://ai.d3.com/page?x=1');
+    expect(origin.headers.get('payment-authorization')).toBeNull();
+    expect(origin.headers.get('x-payment')).toBeNull();
+    // The site's own cookies survive; only ours is taken out.
+    expect(origin.headers.get('cookie')).toBe('sid=abc');
+  });
+
+  it('should drop the Cookie header entirely when ours was the only one', async () => {
+    const log = stubOutbound({ action: 'pass' });
+    await run(siteRequest({ headers: { cookie: `__Host-d3pay=${SESSION}` } }));
+    expect(log.originCalls[0].headers.get('cookie')).toBeNull();
+  });
+
+  it("should append the session cookie to the origin's own Set-Cookie, never replace it", async () => {
+    stubOutbound(
+      {
+        action: 'pass',
+        payment: {
+          headers: {
+            'set-cookie': `__Host-d3pay=${SESSION}; Path=/; Secure; HttpOnly; SameSite=Lax`,
+            'payment-receipt': 'eyJyZWZlcmVuY2UiOiJyIn0',
+          },
+        },
+      },
+      { headers: { 'set-cookie': 'sid=abc; Path=/' } }
+    );
+    const res = await run(siteRequest());
+
+    expect(res.headers.getSetCookie()).toHaveLength(2);
+    expect(res.headers.getSetCookie()[0]).toBe('sid=abc; Path=/');
+    expect(res.headers.get('payment-receipt')).toBe('eyJyZWZlcmVuY2UiOiJyIn0');
+    expect(res.headers.get('x-d3-edge')).toBe('pass');
+  });
+
+  it('should never leave a credential to the sample draw', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.99);
+    const log = stubOutbound({ action: 'pass' });
+    const res = await run(siteRequest({ headers: { cookie: `__Host-d3pay=${SESSION}` } }), {
+      sampleRate: 0,
+    });
+
+    expect(log.policyCalls).toHaveLength(1);
+    expect(res.headers.get('x-d3-edge')).toBe('pass');
+  });
+
+  it('should read a malformed handoff on the URL as ordinary traffic', async () => {
+    const budgets = recordBudgets();
+    const log = stubOutbound({ action: 'pass' });
+    await run(siteRequest({ url: 'https://ai.d3.com/page?d3pay_handoff=nonsense' }));
+
+    expect(budgets).toEqual([1000]);
+    // Not a credential, but still our parameter: the origin never sees it.
+    expect(log.originCalls[0].url).toBe('https://ai.d3.com/page');
   });
 });
 

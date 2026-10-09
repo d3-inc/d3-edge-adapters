@@ -2,7 +2,9 @@
 
 Every adapter in this repo — and every one you write yourself — speaks the
 same contract to the D3 Edge decision endpoint: one call per request in, a
-`pass` or `block` out. There are two dialects of that call. Adapters that
+`pass` or `block` out — and, on an adapter that enforces [paid
+routes](#paid-routes), sometimes an instruction to answer with instead.
+There are two dialects of that call. Adapters that
 run code send a JSON `POST` (everything below, until the last section);
 proxies with a native auth hook send a forward-auth subrequest instead
 ([the forward-auth dialect](#the-forward-auth-dialect)). This page is
@@ -28,8 +30,10 @@ scopes every policy lookup. It is not host-scoped: one key may report any
 host you own.
 
 One call per request, on the request path, with a hard timeout you
-choose (150 ms is the default across this repo). It is the only blocking
-call an adapter makes.
+choose — each recipe in this repo documents its own default. It is the
+only blocking call an adapter makes. An adapter that enforces [paid
+routes](#paid-routes) keeps a second, much larger budget for the
+requests that present a payment.
 
 ## Request
 
@@ -60,6 +64,20 @@ content-digest  sec-purpose  x-purpose  purpose
 Forwarding more is harmless but pointless; forwarding fewer breaks
 verification. Do not forward cookies, `authorization`, or anything else
 the agent sent — the endpoint has no use for them.
+
+An adapter that enforces [paid routes](#paid-routes) forwards four more
+groups, each with a length past which the value is dropped rather than
+sent:
+
+| Header                                                     | Cap    | Why                                             |
+| ---------------------------------------------------------- | ------ | ----------------------------------------------- |
+| `accept`                                                    | 256    | Agent or browser — picks the `402` or the `302`  |
+| `sec-fetch-mode`, `sec-fetch-dest`, `upgrade-insecure-requests` | 32 | The same, for a navigating browser              |
+| `payment-signature`, `x-payment`                            | 4096   | x402, two names because v2 renamed the header   |
+| `payment-authorization`                                     | 128    | A D3 Pay handoff or session, for a cookie-less agent |
+
+Plus `d3pay-session`, which is not a client header at all — see
+[the credential](#the-credential).
 
 ### `content-digest` is yours to compute, never to relay
 
@@ -94,6 +112,7 @@ agent traffic.
 | `ruleId`       | string                        | The rule that decided. Absent when the org default decided.   |
 | `verdict`      | object                        | How the agent was classified — see below.                     |
 | `failOpen`     | boolean                       | Set when the endpoint itself fell back rather than evaluating. |
+| `payment`      | object                        | An answer to send instead of reaching the origin — [paid routes](#paid-routes). |
 
 Treat any `action` that is neither `pass` nor `block` as a failure and
 apply your fail mode. Do not invent a default.
@@ -142,10 +161,118 @@ this repo implements identically.
    { "blocked": true, "ruleId": "…", "tier": "…", "identity": "…" }
    ```
 5. **Tag every response** with `x-d3-edge`: `pass`, `block`, `fail-open`,
-   `fail-closed`, or `disabled`.
+   `fail-closed`, or `disabled` — plus `payment-required` and
+   `payment-redirect` on an adapter that enforces [paid
+   routes](#paid-routes).
 
 Passed traffic then flows to the origin without touching our
 infrastructure.
+
+## Paid routes
+
+A site can put a price on a route, and the decision endpoint then answers
+with an instruction instead of a verdict. This part of the contract is
+**optional**: an adapter that ignores `decision.payment` keeps working
+exactly as described above, and the cost it pays is that a priced route
+is served free. Implement it or don't — but there is no half of it that
+is safe.
+
+The enforcement point never decodes a credential, never learns what a
+facilitator is, and never sees the protocol's own header names. It
+recognizes presence, picks a budget, forwards one value, and copies back
+a status, some headers and a string.
+
+### The credential
+
+A payment rides in one of three places, and an adapter that reads only
+some of them is wrong in a way that is hard to see — the missing case
+gets the hot-path budget, overruns it, and comes back a block:
+
+| Where                                         | Shape                                        |
+| --------------------------------------------- | -------------------------------------------- |
+| `Payment-Authorization: Payment <token>`      | ≤128 chars. For an agent with no cookie jar.  |
+| `Payment-Signature` / `X-Payment`             | ≤4096 chars. x402.                            |
+| `Cookie: __Host-d3pay=<token>`                | ≤64 chars. The site's own first-party cookie. |
+| `?d3pay_handoff=<id>.<sig>` on the URL        | 22 base64url chars, `.`, 43 more. A redemption. |
+
+The cookie is forwarded **by name, as a header of our own**:
+`d3pay-session: <value>`. The raw `Cookie` header is the site's and
+never travels — this is the one exception to "do not forward cookies"
+above, and it is not really one, because what leaves is a single value
+the visitor obtained from us.
+
+Presence is checked against the caps and nothing else. A value past its
+cap is not a payment.
+
+### The budget
+
+A request presenting a payment gets a second, much larger timeout —
+**10 s**, against the hot path's. Settlement happens inside that call and
+the caller is waiting for it. The hot-path budget on a redemption is a
+guaranteed timeout, and with `FAIL_MODE=closed` a guaranteed `403` for
+someone who just paid.
+
+### The answer
+
+`decision.payment` is an instruction, not a decision to make:
+
+| Field     | Meaning                                                            |
+| --------- | ------------------------------------------------------------------ |
+| `status`  | Answer with this instead of reaching the origin. Absent ⇒ pass on.  |
+| `headers` | Headers to put on the answer, or on the origin's response.          |
+| `body`    | Already serialized. Ignored when `status` is absent.                |
+
+Send it verbatim, plus `cache-control: no-store` and your `x-d3-edge`
+tag. Two rules the adapter owns:
+
+- **A redirect (`3xx`) carries no body and no `content-type`.** A JSON
+  type on a redirect misleads the client that follows it.
+- **Re-check every header name and value** before it reaches a header
+  table — token characters only, printable ASCII only, dropped rather
+  than escaped. These values are provider and tenant authored, and your
+  adapter is the last place before the wire.
+
+Tag a `402` `payment-required`, a `3xx` `payment-redirect`, and anything
+else `fail-closed`.
+
+### Failing closed, exactly here
+
+**A request presenting a payment never falls open.** Whatever the fail
+mode says, a decision call that times out or errors on such a request
+answers:
+
+```
+502  { "error": "payment_unavailable" }
+```
+
+Fail-open exists so enforcement breaking cannot take a site down. It
+does not extend to a page that is priced and may already have been
+charged for: serving that free is the failure, not the `502`.
+
+### Passing clean, returning rich
+
+On a pass, the origin must see no credential it could replay. Before
+forwarding: delete the payment headers, remove `__Host-d3pay` from the
+`Cookie` header and leave every other cookie alone, and drop
+`d3pay_handoff` from the URL. Do this whether or not the request counted
+as presenting a payment — an oversized value is not a payment, and it
+still must not reach the origin.
+
+Then put `payment.headers` on the origin's own response. `Set-Cookie`
+and `Access-Control-Expose-Headers` are **appended**; everything else is
+set. Replacing the origin's `Set-Cookie` would log the visitor out of
+the site to hand them ours, and replacing its CORS list would revoke a
+browser's access to headers the site deliberately exposed.
+
+### Sampling
+
+If your adapter samples traffic, a request presenting a payment is
+exempt from the draw. Unsampled, the visitor paid for a page that was
+then served to everybody free.
+
+(Sampling has this cost anyway: an unsampled request on a priced route
+is served free. That is inherent to ramping, and it argues for full
+coverage once you price anything.)
 
 ## Outcome reports (optional)
 
@@ -227,6 +354,19 @@ malformed-tuple`): misconfiguration fails open, loudly, on our side.
 Fail-open moves server-side in this dialect; the proxy-side recipe still
 needs its own fail-open for the case where the endpoint is unreachable
 (each recipe documents its pattern).
+
+### No paid routes
+
+The status code is the whole answer, so there is nowhere to put a
+`402` body, a session cookie, or a receipt. The endpoint knows which
+dialect it is answering and **evaluates paid routes only for the JSON
+one**: a priced route reached through forward-auth is answered `200` or
+`403` like any other, never paywalled and never charged.
+
+This is deliberate, not an oversight to work around in a recipe. A
+dialect that dropped the instruction would serve a priced route free —
+and, worse, settle a presented payment and throw the receipt away. If
+you price routes, enforce them with an adapter that runs code.
 
 ### The body is usually unattested
 
