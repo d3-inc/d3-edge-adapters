@@ -67,6 +67,21 @@ signed digest. `GET`/`HEAD` — nearly all agent traffic — are
 unaffected. If body attestation matters to you, use the [Lua
 adapter](../nginx).
 
+## Paid routes (D3 Pay): not this recipe
+
+[D3 Pay](../PROTOCOL.md#paid-routes) needs an enforcement point that can
+answer `402` with a body, read a cookie by name, and strip a credential
+before the upstream. `auth_request` gives none of that — its whole answer
+is a status code, and it discards the subrequest's body besides — so the
+endpoint calls this recipe with paid routes switched off. **A priced
+route behind `auth_request` is served as an ordinary pass: never
+paywalled, and never charged.**
+
+If you price routes, enforce them with the [Lua adapter](../nginx),
+which carries the whole loop on the same OpenResty you may already run,
+or with a [worker install](https://ai.d3.com/docs/sdks/cloudflare).
+Bot-auth enforcement here is unaffected.
+
 ## Notes
 
 - A blocked visitor gets nginx's own `403` page — `auth_request`

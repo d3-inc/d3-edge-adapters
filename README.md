@@ -9,13 +9,13 @@ metadata, ask your D3 Edge policy endpoint for a decision, then pass the
 request through or answer `403` — failing open if the call errors or
 times out, so an outage on our side never takes your site down.
 
-| Directory                                    | What it is                                                                       |
-| -------------------------------------------- | -------------------------------------------------------------------------------- |
-| [`cloudflare-snippet/`](./cloudflare-snippet) | A single pasted file for Cloudflare zones — no Worker deploy (paid plans). Traffic sampling built in |
-| [`cloudflare-worker/`](./cloudflare-worker)   | Standalone Worker template fronting a site hosted outside Cloudflare             |
-| [`caddy/`](./caddy)                           | Config-only recipe for Caddy's built-in `forward_auth` — no plugin, no build     |
-| [`nginx/`](./nginx)                           | Access-phase Lua script for OpenResty / nginx with the Lua module                |
-| [`nginx-auth-request/`](./nginx-auth-request) | Config-only recipe for stock nginx via `auth_request` — no Lua required          |
+| Directory                                    | What it is                                                                       | Paid routes |
+| -------------------------------------------- | -------------------------------------------------------------------------------- | ----------- |
+| [`cloudflare-snippet/`](./cloudflare-snippet) | A single pasted file for Cloudflare zones — no Worker deploy (paid plans). Traffic sampling built in | Yes |
+| [`cloudflare-worker/`](./cloudflare-worker)   | Standalone Worker template fronting a site hosted outside Cloudflare             | With the next release of its npm adapter |
+| [`caddy/`](./caddy)                           | Config-only recipe for Caddy's built-in `forward_auth` — no plugin, no build     | No |
+| [`nginx/`](./nginx)                           | Access-phase Lua script for OpenResty / nginx with the Lua module                | Yes |
+| [`nginx-auth-request/`](./nginx-auth-request) | Config-only recipe for stock nginx via `auth_request` — no Lua required          | No |
 
 All of them speak one contract, specified in
 [`PROTOCOL.md`](./PROTOCOL.md): the decision payload, the response, the
@@ -23,6 +23,15 @@ All of them speak one contract, specified in
 `403` shape — an adapter has to get right. Read it to write an adapter
 for a platform we don't cover yet, or to see exactly what leaves your
 infrastructure.
+
+The last column is [D3 Pay](./PROTOCOL.md#paid-routes), the optional
+half of that contract: a site prices a route, and the adapter answers
+`402` until the visitor's agent presents a credential. The two
+forward-auth recipes cannot carry it — their whole answer is a status
+code — so a priced route behind them is served as an ordinary pass, and
+each README says so. The worker template carries whatever
+`@d3-inc/d3-edge-cloudflare-adapter` carries; the version it pins today
+predates D3 Pay.
 
 The npm SDKs —
 [`@d3-inc/d3-edge-cloudflare-adapter`](https://www.npmjs.com/package/@d3-inc/d3-edge-cloudflare-adapter)
