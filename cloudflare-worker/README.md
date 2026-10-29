@@ -25,8 +25,10 @@ response carries an `x-d3-edge` header once it is.
 
 ## Turning it off
 
-Remove the route, or set `DNA_ENABLED` to `false`, and the worker passes
-everything untouched. Your site never depends on D3 Edge to serve.
+Remove the route, or set `DNA_ENABLED = "false"` under `[vars]` in your repo's
+`wrangler.toml`, and the worker passes everything untouched. Set it there, not
+in the Cloudflare dashboard: the next deploy replaces dashboard variables with
+the file's. Your site never depends on D3 Edge to serve.
 
 ## Configuration
 

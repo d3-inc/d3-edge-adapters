@@ -11,3 +11,6 @@ workers_dev = false
 [vars]
 DNA_TIMEOUT_MS = "500"
 DNA_FAIL_MODE = "open"
+# Off switch. Set it here, not in the Cloudflare dashboard: the next deploy
+# replaces dashboard vars with this file's.
+# DNA_ENABLED = "false"
