@@ -24,10 +24,16 @@ local sha256 = require "resty.sha256"
 
 -- ── Configuration (each var needs an `env` line in nginx.conf's main context) ─
 -- The earlier name is what an install used before the DNA_ prefix, still read
--- so it keeps working unchanged.
+-- so it keeps working unchanged. Empty counts as unset, so a blank DNA_ line
+-- (`${DNA_API_KEY}` with nothing behind it) can't hide a working earlier one.
+local function non_empty(value)
+  if value == "" then return nil end
+  return value
+end
+
 local function setting(name, earlier_name)
-  local value = os.getenv(name)
-  if value == nil and earlier_name then value = os.getenv(earlier_name) end
+  local value = non_empty(os.getenv(name))
+  if value == nil and earlier_name then value = non_empty(os.getenv(earlier_name)) end
   return value
 end
 
@@ -45,11 +51,12 @@ local function dna_endpoint()
   local enabled = os.getenv("DNA_ENABLED")
   if enabled and enabled:lower():match("^%s*false%s*$") then return nil end
 
-  local endpoint = setting("DNA_ENDPOINT", "POLICY_WORKER_URL")
-  if endpoint ~= nil then return endpoint ~= "" and endpoint or nil end
+  -- Unlike every other setting, an empty endpoint is meaningful: it is off.
+  local endpoint = os.getenv("DNA_ENDPOINT")
+  if endpoint == nil then endpoint = os.getenv("POLICY_WORKER_URL") end
+  if endpoint ~= nil then return non_empty(endpoint) end
 
-  local key = os.getenv("DNA_API_KEY")
-  return (key and key ~= "") and DEFAULT_ENDPOINT or nil
+  return non_empty(os.getenv("DNA_API_KEY")) and DEFAULT_ENDPOINT or nil
 end
 
 local ENDPOINT = dna_endpoint()

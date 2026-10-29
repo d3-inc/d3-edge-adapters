@@ -24,6 +24,8 @@ const CONFIG = {
   alwaysSampleSigned: false,
 };
 
+const DEFAULT_ENDPOINT = 'https://edge-api.d3.com/v1/decision';
+
 export default createSnippet(CONFIG);
 
 // Headers forwarded to the policy worker — the same allowlist the Worker
@@ -84,13 +86,11 @@ const BASE64URL = /^[A-Za-z0-9_-]+$/;
 // Snippets get 2 MB of memory, so only bodies up to this size are hashed.
 const MAX_HASHED_BODY_BYTES = 1_000_000;
 
-const DEFAULT_ENDPOINT = 'https://edge-api.d3.com/v1/decision';
-
 // The on switch, as in the npm adapters: an endpoint, or an API key that then
 // calls the default one. `policyWorkerUrl` and `adapterKey` are the names a
 // CONFIG used before, still read so an old CONFIG pasted into this file works.
 export function dnaEndpoint(config) {
-  if (config.enabled === false) return undefined;
+  if (String(config.enabled).trim().toLowerCase() === 'false') return undefined;
 
   const endpoint = config.endpoint ?? config.policyWorkerUrl;
   if (endpoint !== undefined) return endpoint || undefined;
@@ -98,14 +98,13 @@ export function dnaEndpoint(config) {
 }
 
 export function createSnippet(config) {
-  const apiKey = config.apiKey ?? config.adapterKey;
+  // `||`, not `??`: an empty apiKey must not hide an earlier CONFIG's adapterKey.
+  const apiKey = config.apiKey || config.adapterKey;
+  const endpoint = dnaEndpoint(config);
   return {
     // Unlike the Worker adapter there is no outcome report: Snippets have no
     // waitUntil, so the request is logged at decision time and nothing more.
     async fetch(request) {
-      // Resolved here, not above: `export default createSnippet(CONFIG)` runs
-      // before DEFAULT_ENDPOINT is initialised.
-      const endpoint = dnaEndpoint(config);
       if (!endpoint) return withEdgeHeader(await fetch(request), 'disabled');
 
       const paying = requestPresentsPayment(request);

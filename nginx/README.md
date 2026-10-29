@@ -47,7 +47,7 @@ Lua:
 | Variable                 | Type                 | Default                               | What it does                                                                  |
 | ------------------------ | -------------------- | ------------------------------------- | ----------------------------------------------------------------------------- |
 | `DNA_API_KEY`            | string               | unset                                 | Your org's key, bearer for the decision call. **Unset means pure passthrough**: the script does nothing. |
-| `DNA_ENABLED`            | `"false"`            | unset                                 | `false` turns DNA off without removing the key.                               |
+| `DNA_ENABLED`            | `"false"`            | unset                                 | `false` turns DNA off without removing the key. Any other value leaves it on. |
 | `DNA_FAIL_MODE`          | `"open" \| "closed"` | `open`                                | `open`: pass traffic when the call fails. `closed`: block instead.            |
 | `DNA_TIMEOUT_MS`         | number (ms)          | `150`                                 | Hard budget for the decision call.                                            |
 | `DNA_PAYMENT_TIMEOUT_MS` | number (ms)          | `10000`                               | Budget for a request presenting a payment — settlement happens inside it.     |
@@ -68,7 +68,10 @@ what switches DNA on.
 | `FAIL_MODE`                 | `DNA_FAIL_MODE`              |
 
 To move over, take this directory's script and `env` lines, rename each
-variable, and drop `POLICY_WORKER_URL`.
+variable, and drop `POLICY_WORKER_URL`. If you turned DNA off by leaving
+`POLICY_WORKER_URL` unset, set `DNA_ENABLED=false` first: `DNA_API_KEY`
+switches DNA on by itself. A script older than this one ignores
+`DNA_ENABLED`; unset `POLICY_WORKER_URL` to turn it off.
 
 ## Response shape
 

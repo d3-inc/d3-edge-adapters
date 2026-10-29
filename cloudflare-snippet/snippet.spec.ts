@@ -461,6 +461,10 @@ describe('dnaEndpoint', () => {
     expect(dnaEndpoint({ ...BASE_CONFIG, enabled: false })).toBeUndefined();
   });
 
+  it("should turn off on a pasted string 'false', as the npm adapters do", () => {
+    expect(dnaEndpoint({ ...BASE_CONFIG, enabled: 'false' as unknown as boolean })).toBeUndefined();
+  });
+
   it('should run a CONFIG pasted with the earlier names exactly as before', () => {
     const legacy = { ...BASE_CONFIG, apiKey: undefined, policyWorkerUrl: POLICY_URL, adapterKey: KEY };
     expect(dnaEndpoint(legacy)).toBe(POLICY_URL);
@@ -489,6 +493,12 @@ describe('snippet-specific behavior', () => {
   it('should send an earlier CONFIG\'s adapterKey as the bearer', async () => {
     const log = stubOutbound({ action: 'pass' });
     await run(siteRequest(), { apiKey: undefined, policyWorkerUrl: POLICY_URL, adapterKey: KEY });
+    expect(log.policyCalls[0].headers.get('authorization')).toBe(`Bearer ${KEY}`);
+  });
+
+  it('should not let an empty apiKey hide an earlier CONFIG\'s adapterKey', async () => {
+    const log = stubOutbound({ action: 'pass' });
+    await run(siteRequest(), { apiKey: '', policyWorkerUrl: POLICY_URL, adapterKey: KEY });
     expect(log.policyCalls[0].headers.get('authorization')).toBe(`Bearer ${KEY}`);
   });
 

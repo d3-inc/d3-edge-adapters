@@ -38,6 +38,8 @@ variables where they exist:
 
 A `CONFIG` from an earlier copy of this file still works pasted into this
 one: `adapterKey` is read as `apiKey`, and `policyWorkerUrl` as `endpoint`.
+An earlier copy itself ignores `enabled`; its off switch is an empty
+`policyWorkerUrl`.
 
 `ORIGIN` and `ORIGIN_URL` don't exist here: pass-traffic continues to
 whatever your zone already routes to.
