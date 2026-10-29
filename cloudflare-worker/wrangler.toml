@@ -9,6 +9,5 @@ compatibility_date = "2025-06-01"
 workers_dev = false
 
 [vars]
-POLICY_WORKER_URL = "https://edge-api.d3.com/v1/decision"
-POLICY_TIMEOUT_MS = "500"
-FAIL_MODE = "open"
+DNA_TIMEOUT_MS = "500"
+DNA_FAIL_MODE = "open"

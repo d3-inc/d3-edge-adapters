@@ -12,7 +12,7 @@ times out, so an outage on our side never takes your site down.
 | Directory                                    | What it is                                                                       | Paid routes |
 | -------------------------------------------- | -------------------------------------------------------------------------------- | ----------- |
 | [`cloudflare-snippet/`](./cloudflare-snippet) | A single pasted file for Cloudflare zones — no Worker deploy (paid plans). Traffic sampling built in | Yes |
-| [`cloudflare-worker/`](./cloudflare-worker)   | Standalone Worker template fronting a site hosted outside Cloudflare             | With the next release of its npm adapter |
+| [`cloudflare-worker/`](./cloudflare-worker)   | Standalone Worker template fronting a site hosted outside Cloudflare             | Yes |
 | [`caddy/`](./caddy)                           | Config-only recipe for Caddy's built-in `forward_auth` — no plugin, no build     | No |
 | [`nginx/`](./nginx)                           | Access-phase Lua script for OpenResty / nginx with the Lua module                | Yes |
 | [`nginx-auth-request/`](./nginx-auth-request) | Config-only recipe for stock nginx via `auth_request` — no Lua required          | No |
@@ -30,8 +30,7 @@ half of that contract: a site prices a route, and the adapter answers
 forward-auth recipes cannot carry it — their whole answer is a status
 code — so a priced route behind them is served as an ordinary pass, and
 each README says so. The worker template carries whatever
-`@d3-inc/d3-edge-cloudflare-adapter` carries; the version it pins today
-predates D3 Pay.
+`@d3-inc/d3-edge-cloudflare-adapter` carries.
 
 The npm SDKs —
 [`@d3-inc/d3-edge-cloudflare-adapter`](https://www.npmjs.com/package/@d3-inc/d3-edge-cloudflare-adapter)

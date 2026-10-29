@@ -8,7 +8,7 @@ passes: an outage on our side never takes your site down.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/d3-inc/d3-edge-adapters/tree/main/cloudflare-worker)
 
-The deploy flow asks for one secret, `POLICY_ADAPTER_KEY` — create the
+The deploy flow asks for one secret, `DNA_API_KEY` — create the
 key at [dashboard.d3.com/keys](https://dashboard.d3.com/keys)
 first.
 
@@ -25,7 +25,7 @@ response carries an `x-d3-edge` header once it is.
 
 ## Turning it off
 
-Remove the route, or unset `POLICY_WORKER_URL`, and the worker passes
+Remove the route, or set `DNA_ENABLED` to `false`, and the worker passes
 everything untouched. Your site never depends on D3 Edge to serve.
 
 ## Configuration
