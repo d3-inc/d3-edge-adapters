@@ -113,7 +113,11 @@ export function createSnippet(config) {
       // No Response clone and no header either: an unsampled request costs
       // what the snippet costs uninstalled. Sampling out a payment would serve
       // a page someone paid for to everyone free, so it is exempt.
-      if (!paying && !isSampled(request, config)) return fetch(request);
+      //
+      // Still stripped, though: a credential or a browser-check answer must not
+      // reach the origin because a draw went the other way, and the stripper
+      // returns the request untouched when there is nothing on it.
+      if (!paying && !isSampled(request, config)) return fetch(stripPaymentCredential(request));
 
       let decision;
       try {
@@ -138,7 +142,9 @@ export function createSnippet(config) {
         if (paying) return paymentUnavailableResponse();
         // Enforcement failure must never take the site down, unless opted in.
         if (config.failMode === 'closed') return blockResponse({}, 'fail-closed');
-        return withEdgeHeader(await fetch(request), 'fail-open');
+        // Stripped on the way out too: an endpoint we could not reach is no
+        // reason to hand the origin a credential or a check answer.
+        return withEdgeHeader(await fetch(stripPaymentCredential(request)), 'fail-open');
       }
 
       if (decision.action === 'block') return blockResponse(decision, 'block');
@@ -247,7 +253,9 @@ function stripPaymentCredential(request) {
   const ours = [PAY_SESSION_COOKIE, PERSON_PASS_COOKIE];
   const hasCookie = cookie !== null && ours.some((name) => readCookie(cookie, name) !== null);
   const url = stripPayParams(request.url);
-  const hasHeader = PAYMENT_HEADERS.some((name) => request.headers.has(name));
+  // The pass is stripped like a payment though it never counts as one: a visitor
+  // can set the header itself, and it must not reach the origin either way.
+  const hasHeader = [...PAYMENT_HEADERS, PERSON_PASS_HEADER].some((name) => request.headers.has(name));
   if (!hasCookie && !hasHeader && url === request.url) return request;
 
   const headers = new Headers(request.headers);

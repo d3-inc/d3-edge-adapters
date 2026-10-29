@@ -285,6 +285,32 @@ local function payment_unavailable()
   return ngx.exit(502)
 end
 
+-- Everything of ours off the upstream request: the headers, our two cookies and
+-- our query params. Defined here because the fail-open return below needs it
+-- too — an endpoint we could not reach is no reason to hand the origin a
+-- credential or a browser-check answer.
+--
+-- Unconditional, unlike the budget: an oversized value is not a payment, and it
+-- still must not reach the upstream.
+local function strip_credentials_from_upstream()
+  for name, _ in pairs(PAYMENT_HEADERS) do
+    ngx.req.clear_header(name)
+  end
+  ngx.req.clear_header(PERSON_PASS_HEADER)
+
+  if session_cookie ~= nil or person_pass ~= nil then
+    local kept = strip_own_cookies(cookie_header)
+    if kept == nil then ngx.req.clear_header("Cookie") else ngx.req.set_header("Cookie", kept) end
+  end
+
+  -- $args, not ngx.req.set_uri_args(): that escapes what it is handed, so a query
+  -- value already carrying a %XX would reach the upstream double-encoded. Both
+  -- clear valid_unparsed_uri, which is what makes proxy_pass rebuild the target.
+  if ngx.var.args ~= nil and string.find(ngx.var.args, "d3pay_", 1, true) ~= nil then
+    ngx.var.args = strip_pay_params(ngx.var.args)
+  end
+end
+
 -- Enforcement failure must never take the site down, unless opted into
 -- fail-closed — or unless the request is paying.
 local decision = res and res.status == 200 and cjson.decode(res.body) or nil
@@ -292,6 +318,7 @@ if type(decision) ~= "table" or (decision.action ~= "pass" and decision.action ~
   ngx.log(ngx.ERR, "d3-edge: policy call failed: ", err or (res and res.status) or "bad decision")
   if paying then return payment_unavailable() end
   if FAIL_MODE == "closed" then return deny("fail-closed", nil) end
+  strip_credentials_from_upstream()
   ngx.header["x-d3-edge"] = "fail-open"
   return
 end
@@ -343,24 +370,7 @@ if payment ~= nil and payment.status ~= nil then
 end
 
 -- ── Pass ─────────────────────────────────────────────────────────────────────
--- Unconditional, unlike the budget: an oversized value is not a payment, and it
--- still must not reach the upstream.
-for name, _ in pairs(PAYMENT_HEADERS) do
-  ngx.req.clear_header(name)
-end
-ngx.req.clear_header(PERSON_PASS_HEADER)
-
-if session_cookie ~= nil or person_pass ~= nil then
-  local kept = strip_own_cookies(cookie_header)
-  if kept == nil then ngx.req.clear_header("Cookie") else ngx.req.set_header("Cookie", kept) end
-end
-
--- $args, not ngx.req.set_uri_args(): that escapes what it is handed, so a query
--- value already carrying a %XX would reach the upstream double-encoded. Both
--- clear valid_unparsed_uri, which is what makes proxy_pass rebuild the target.
-if ngx.var.args ~= nil and string.find(ngx.var.args, "d3pay_", 1, true) ~= nil then
-  ngx.var.args = strip_pay_params(ngx.var.args)
-end
+strip_credentials_from_upstream()
 
 apply_payment_headers(payment and payment.headers)
 

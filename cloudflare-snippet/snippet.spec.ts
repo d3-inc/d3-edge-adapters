@@ -26,6 +26,7 @@ interface ClientDecision {
 }
 
 interface RequestPayload {
+  adapterSet?: number;
   requestId?: string;
   ip?: string;
   method: string;
@@ -427,6 +428,22 @@ describe('fail-open (enforcement failure must never take the site down)', () => 
     expect(log.originCalls).toHaveLength(1);
   });
 
+  it('should still keep our credentials off the origin when it fails open', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const log = stubOutbound({ status: 500 });
+    await run(
+      siteRequest({
+        url: `https://ai.d3.com/page?d3pay_browser=eyJ4IjoxfQ`,
+        // No pay cookie: a paying request never falls open, it gets a 502.
+        headers: { cookie: `__Host-d3person=${PASS}; theme=dark` },
+      })
+    );
+
+    const origin = log.originCalls[0];
+    expect(origin.headers.get('cookie')).toBe('theme=dark');
+    expect(origin.url).toBe('https://ai.d3.com/page');
+  });
+
   it('should pass traffic when the policy call exceeds its timeout budget', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const log = stubOutbound('hang');
@@ -473,6 +490,21 @@ describe('traffic sampling', () => {
     const res = await run(siteRequest(), { sampleRate: 0.05 });
     expect(res.headers.get('x-d3-edge')).toBe('pass');
     expect(log.policyCalls).toHaveLength(1);
+  });
+
+  it('should keep our credentials off the origin on a request it sampled out', async () => {
+    const log = stubOutbound({ action: 'pass' });
+    await run(
+      siteRequest({
+        url: `https://ai.d3.com/page?d3pay_browser=eyJ4IjoxfQ`,
+        headers: { cookie: `__Host-d3person=${PASS}; theme=dark` },
+      }),
+      { sampleRate: 0 }
+    );
+
+    expect(log.policyCalls).toHaveLength(0);
+    expect(log.originCalls[0].headers.get('cookie')).toBe('theme=dark');
+    expect(log.originCalls[0].url).toBe('https://ai.d3.com/page');
   });
 
   it('should always sample signed requests when alwaysSampleSigned is set', async () => {
