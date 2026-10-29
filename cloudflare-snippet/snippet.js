@@ -6,10 +6,10 @@
 // mirrors the Worker adapter (@d3-inc/d3-edge-cloudflare-adapter).
 
 const CONFIG = {
-  // Decision endpoint. An empty string is the kill switch: pure passthrough.
-  policyWorkerUrl: 'https://edge-api.d3.com/v1/decision',
-  // Your org's adapter key (dashboard → Keys).
-  adapterKey: 'd3_k_REPLACE_ME',
+  // Your org's API key (dashboard → API keys). The only setting DNA needs.
+  apiKey: 'd3_k_REPLACE_ME',
+  // false turns DNA off without removing the key: pure passthrough.
+  enabled: true,
   // Hard budget for the decision call, in milliseconds.
   timeoutMs: 150,
   // Budget for a request presenting a payment: settlement happens inside the call.
@@ -84,12 +84,29 @@ const BASE64URL = /^[A-Za-z0-9_-]+$/;
 // Snippets get 2 MB of memory, so only bodies up to this size are hashed.
 const MAX_HASHED_BODY_BYTES = 1_000_000;
 
+const DEFAULT_ENDPOINT = 'https://edge-api.d3.com/v1/decision';
+
+// The on switch, as in the npm adapters: an endpoint, or an API key that then
+// calls the default one. `policyWorkerUrl` and `adapterKey` are the names a
+// CONFIG used before, still read so an old CONFIG pasted into this file works.
+export function dnaEndpoint(config) {
+  if (config.enabled === false) return undefined;
+
+  const endpoint = config.endpoint ?? config.policyWorkerUrl;
+  if (endpoint !== undefined) return endpoint || undefined;
+  return config.apiKey ? DEFAULT_ENDPOINT : undefined;
+}
+
 export function createSnippet(config) {
+  const apiKey = config.apiKey ?? config.adapterKey;
   return {
     // Unlike the Worker adapter there is no outcome report: Snippets have no
     // waitUntil, so the request is logged at decision time and nothing more.
     async fetch(request) {
-      if (!config.policyWorkerUrl) return withEdgeHeader(await fetch(request), 'disabled');
+      // Resolved here, not above: `export default createSnippet(CONFIG)` runs
+      // before DEFAULT_ENDPOINT is initialised.
+      const endpoint = dnaEndpoint(config);
+      if (!endpoint) return withEdgeHeader(await fetch(request), 'disabled');
 
       const paying = requestPresentsPayment(request);
       // No Response clone and no header either: an unsampled request costs
@@ -99,11 +116,11 @@ export function createSnippet(config) {
 
       let decision;
       try {
-        const res = await fetch(config.policyWorkerUrl, {
+        const res = await fetch(endpoint, {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
-            authorization: `Bearer ${config.adapterKey}`,
+            authorization: `Bearer ${apiKey}`,
           },
           body: JSON.stringify(await extractPayload(request)),
           signal: AbortSignal.timeout(paying ? config.paymentTimeoutMs : config.timeoutMs),
