@@ -88,7 +88,7 @@ const PAY_AUTH_CHECK_PARAM = 'd3pay_check';
 
 const BROWSER_CHECK_PARAM = 'd3pay_browser';
 
-// What this recipe does with the endpoint's answer (ADR 0067). Bump it only
+// What this recipe does with the endpoint's answer (ADR 0068). Bump it only
 // with the behaviour: the worker reads it to decide whether a browser check can
 // finish here, and a copy that drops any of the three below must not claim 1.
 const ADAPTER_SET = 1;

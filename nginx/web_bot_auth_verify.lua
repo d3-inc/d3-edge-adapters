@@ -83,7 +83,7 @@ local PERSON_PASS_MAX_LEN  = 64
 local PAY_HANDOFF_PARAM    = "d3pay_handoff"
 -- The other two params of ours a visitor's navigation can carry back.
 local PAY_PARAMS           = { PAY_HANDOFF_PARAM, "d3pay_check", "d3pay_browser" }
--- What this recipe does with the endpoint's answer (ADR 0067). Bump it only with
+-- What this recipe does with the endpoint's answer (ADR 0068). Bump it only with
 -- the behaviour: the worker reads it to decide whether a browser check can
 -- finish here, and a copy that drops any of the three below must not claim 1.
 local ADAPTER_SET          = 1
