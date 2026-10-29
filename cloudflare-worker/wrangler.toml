@@ -9,6 +9,8 @@ compatibility_date = "2025-06-01"
 workers_dev = false
 
 [vars]
-POLICY_WORKER_URL = "https://edge-api.d3.com/v1/decision"
-POLICY_TIMEOUT_MS = "500"
-FAIL_MODE = "open"
+DNA_TIMEOUT_MS = "500"
+DNA_FAIL_MODE = "open"
+# Off switch. Set it here, not in the Cloudflare dashboard: the next deploy
+# replaces dashboard vars with this file's.
+# DNA_ENABLED = "false"
