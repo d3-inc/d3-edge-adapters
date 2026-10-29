@@ -26,6 +26,7 @@ interface ClientDecision {
 }
 
 interface RequestPayload {
+  adapterSet?: number;
   requestId?: string;
   ip?: string;
   method: string;
@@ -51,6 +52,9 @@ const BASE_CONFIG: SnippetConfig = {
 const HANDOFF = `${'a'.repeat(22)}.${'b'.repeat(43)}`;
 
 const SESSION = 'c'.repeat(43);
+
+// The browser-check pass: a signed bearer the same shape and length as the session's.
+const PASS = `${Date.now()}.${'d'.repeat(43)}`.slice(0, 56);
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -218,6 +222,48 @@ describe('D3 Pay', () => {
     expect(headers['cookie']).toBeUndefined();
   });
 
+  it('should forward the browser-check pass as d3pay-person, and declare the revision that carries it', async () => {
+    const log = stubOutbound({ action: 'pass' });
+    await run(
+      siteRequest({ headers: { cookie: `sid=abc; __Host-d3person=${PASS}; __Host-d3pay=${SESSION}` } })
+    );
+
+    const { payload } = log.policyCalls[0];
+    expect(payload.headers['d3pay-person']).toBe(PASS);
+    expect(payload.headers['d3pay-session']).toBe(SESSION);
+    expect(payload.headers['cookie']).toBeUndefined();
+    expect(payload.adapterSet).toBe(1);
+  });
+
+  it('should keep the pass off the origin, cookie and header alike', async () => {
+    const log = stubOutbound({ action: 'pass' });
+    await run(siteRequest({ headers: { cookie: `__Host-d3person=${PASS}; theme=dark` } }));
+
+    const origin = log.originCalls[0];
+    expect(origin.headers.get('cookie')).toBe('theme=dark');
+    expect(origin.headers.get('d3pay-person')).toBeNull();
+  });
+
+  it('should strip every param of ours before the origin, not just the handoff', async () => {
+    const log = stubOutbound({ action: 'pass' });
+    await run(
+      siteRequest({
+        url: `https://ai.d3.com/page?a=1&d3pay_handoff=${HANDOFF}&d3pay_browser=eyJ4IjoxfQ&d3pay_check=1`,
+      })
+    );
+
+    expect(log.originCalls[0].url).toBe('https://ai.d3.com/page?a=1');
+  });
+
+  it('should leave the pass out of the payment budget: it buys access, never payment', async () => {
+    const budgets = recordBudgets();
+    stubOutbound({ action: 'pass' });
+
+    await run(siteRequest({ headers: { cookie: `__Host-d3person=${PASS}` } }));
+
+    expect(budgets).toEqual([1000]);
+  });
+
   it('should spend the payment budget on a credential and the hot-path budget otherwise', async () => {
     const budgets = recordBudgets();
     stubOutbound({ action: 'pass' });
@@ -381,6 +427,22 @@ describe('fail-open (enforcement failure must never take the site down)', () => 
     expect(log.originCalls).toHaveLength(1);
   });
 
+  it('should still keep our credentials off the origin when it fails open', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const log = stubOutbound({ status: 500 });
+    await run(
+      siteRequest({
+        url: `https://ai.d3.com/page?d3pay_browser=eyJ4IjoxfQ`,
+        // No pay cookie: a paying request never falls open, it gets a 502.
+        headers: { cookie: `__Host-d3person=${PASS}; theme=dark` },
+      })
+    );
+
+    const origin = log.originCalls[0];
+    expect(origin.headers.get('cookie')).toBe('theme=dark');
+    expect(origin.url).toBe('https://ai.d3.com/page');
+  });
+
   it('should pass traffic when the policy call exceeds its timeout budget', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const log = stubOutbound('hang');
@@ -427,6 +489,21 @@ describe('traffic sampling', () => {
     const res = await run(siteRequest(), { sampleRate: 0.05 });
     expect(res.headers.get('x-d3-edge')).toBe('pass');
     expect(log.policyCalls).toHaveLength(1);
+  });
+
+  it('should keep our credentials off the origin on a request it sampled out', async () => {
+    const log = stubOutbound({ action: 'pass' });
+    await run(
+      siteRequest({
+        url: `https://ai.d3.com/page?d3pay_browser=eyJ4IjoxfQ`,
+        headers: { cookie: `__Host-d3person=${PASS}; theme=dark` },
+      }),
+      { sampleRate: 0 }
+    );
+
+    expect(log.policyCalls).toHaveLength(0);
+    expect(log.originCalls[0].headers.get('cookie')).toBe('theme=dark');
+    expect(log.originCalls[0].url).toBe('https://ai.d3.com/page');
   });
 
   it('should always sample signed requests when alwaysSampleSigned is set', async () => {

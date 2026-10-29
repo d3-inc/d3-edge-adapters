@@ -30,8 +30,10 @@ half of that contract: a site prices a route, and the adapter answers
 forward-auth recipes cannot carry it — their whole answer is a status
 code — so a priced route behind them is served as an ordinary pass, and
 each README says so. The worker template carries whatever
-`@d3-inc/d3-edge-cloudflare-adapter` carries; the version it pins today
-predates D3 Pay.
+`@d3-inc/d3-edge-cloudflare-adapter` carries, and now pins the newest
+published one (0.5) rather than a three-minor-old 0.2. No published
+adapter forwards the browser check's pass yet, so the check reaches no
+install until the next release.
 
 The npm SDKs —
 [`@d3-inc/d3-edge-cloudflare-adapter`](https://www.npmjs.com/package/@d3-inc/d3-edge-cloudflare-adapter)
