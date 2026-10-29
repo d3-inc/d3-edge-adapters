@@ -46,6 +46,7 @@ requests that present a payment.
 | `requestId` | string (≤64)          | no       | Your correlation id. Links this decision to an outcome report and to logs.     |
 | `ip`        | string                | no       | The agent's IP. Used for fingerprint matching, then hashed or dropped.        |
 | `timestamp` | ISO-8601 or epoch sec | no       | When you observed the request. Informational.                                 |
+| `adapterSet`| positive integer      | no       | What you do with the answer — see **Declaring what you can do**. Absent means nothing. |
 
 `url` carries the query because signatures may cover `@query`; strip
 nothing. `host` must be the authority the agent used, not your origin's
@@ -203,6 +204,29 @@ the visitor obtained from us.
 
 Presence is checked against the caps and nothing else. A value past its
 cap is not a payment.
+
+### Declaring what you can do
+
+Some answers are a round trip. The browser check answers a visitor with a
+page carrying a script, the browser comes back with what it found, and we
+serve it with a cookie the next request has to carry. An enforcement point
+that cannot carry that cookie would show the check forever and never finish
+it, so the endpoint will not start one unless you say you can.
+
+`adapterSet` is how you say it. Send the highest revision you honour in
+full. Send nothing if you honour none — that is the safe answer, and the
+one the endpoint assumes.
+
+| Revision | You assert that you                                                                                                                                    |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1        | forward `Cookie: __Host-d3person` as `d3pay-person`; append the answer's `Set-Cookie` to the origin's response rather than replacing it; and strip `d3pay_browser` from the URL before the origin |
+
+All or nothing. A copy of this repository that drops any one of the three
+must not claim `1` — the cost falls on that site's own visitors, who get
+checked on every page instead of once a day, and whose answer ends up in
+the origin's access log as a query parameter.
+
+The pass is **not** a payment. It never buys the budget below.
 
 ### The budget
 

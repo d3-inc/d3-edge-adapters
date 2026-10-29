@@ -66,7 +66,10 @@ answer `402` with a body, read a cookie by name, and strip a credential
 before the origin. `forward_auth` gives none of that: the dialect's whole
 answer is a status code, so the endpoint calls this recipe with paid
 routes switched off. **A priced route behind Caddy `forward_auth` is
-served as an ordinary pass — never paywalled, and never charged.**
+served as an ordinary pass — never paywalled, and never charged.** The browser
+check rides on paid routes, so it never runs here either: this recipe
+declares no `adapterSet`, and the endpoint does not start a check it
+cannot finish.
 
 The deny body is the only part Caddy would in fact return verbatim; the
 rest — the session cookie, the budget, the receipt — has nowhere to go.

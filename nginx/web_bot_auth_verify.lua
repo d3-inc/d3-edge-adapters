@@ -74,8 +74,19 @@ local PAY_SESSION_COOKIE   = "__Host-d3pay"
 -- The cookie's value travels under this name; the raw Cookie header never does.
 local PAY_SESSION_HEADER   = "d3pay-session"
 local PAY_SESSION_MAX_LEN  = 64
+-- The browser check's pass (ADR 0057). Not a payment: it never buys the payment
+-- budget, and it is stripped from the origin like one.
+local PERSON_PASS_COOKIE   = "__Host-d3person"
+local PERSON_PASS_HEADER   = "d3pay-person"
+local PERSON_PASS_MAX_LEN  = 64
 -- Where the credential rides for a caller with no cookie jar.
 local PAY_HANDOFF_PARAM    = "d3pay_handoff"
+-- The other two params of ours a visitor's navigation can carry back.
+local PAY_PARAMS           = { PAY_HANDOFF_PARAM, "d3pay_check", "d3pay_browser" }
+-- What this recipe does with the endpoint's answer (ADR 0067). Bump it only with
+-- the behaviour: the worker reads it to decide whether a browser check can
+-- finish here, and a copy that drops any of the three below must not claim 1.
+local ADAPTER_SET          = 1
 
 local function trim(s)
   local trimmed = string.gsub(s, "^%s*(.-)%s*$", "%1")
@@ -107,35 +118,43 @@ local function handoff_from_args(args)
   return nil
 end
 
--- From the raw query string, not get_uri_args(): a re-encoded table would
--- reorder the upstream's parameters and re-escape its values.
-local function strip_handoff_param(args)
+-- Every param of ours, so none of them reaches the origin as a cache key or a
+-- line in its access log. From the raw query string, not get_uri_args(): a
+-- re-encoded table would reorder the upstream's parameters and re-escape its values.
+local function strip_pay_params(args)
   if args == nil or args == "" then return args end
+  local ours = {}
+  for _, name in ipairs(PAY_PARAMS) do ours[name] = true end
   local kept = {}
   for pair in string.gmatch(args, "([^&]+)") do
-    if string.match(pair, "^([^=]*)") ~= PAY_HANDOFF_PARAM then kept[#kept + 1] = pair end
+    if not ours[string.match(pair, "^([^=]*)")] then kept[#kept + 1] = pair end
   end
 
   return table.concat(kept, "&")
 end
 
-local function read_session_cookie(cookie_header)
+local function read_cookie(cookie_header, cookie)
   if cookie_header == nil then return nil end
   for part in string.gmatch(cookie_header, "([^;]+)") do
     local name, value = string.match(part, "^%s*([^=]+)=(.*)$")
-    if name ~= nil and trim(name) == PAY_SESSION_COOKIE then return trim(value) end
+    if name ~= nil and trim(name) == cookie then return trim(value) end
   end
 
   return nil
 end
 
--- Nil when ours was the only cookie, so the caller can clear the header.
-local function strip_session_cookie(cookie_header)
-  local prefix = PAY_SESSION_COOKIE .. "="
+-- Nil when ours were the only cookies, so the caller can clear the header.
+local function strip_own_cookies(cookie_header)
+  local prefixes = { PAY_SESSION_COOKIE .. "=", PERSON_PASS_COOKIE .. "=" }
   local kept = {}
   for part in string.gmatch(cookie_header, "([^;]+)") do
     local trimmed = trim(part)
-    if trimmed ~= "" and string.sub(trimmed, 1, #prefix) ~= prefix then kept[#kept + 1] = trimmed end
+    local ours = false
+    for _, prefix in ipairs(prefixes) do
+      if string.sub(trimmed, 1, #prefix) == prefix then ours = true end
+    end
+
+    if trimmed ~= "" and not ours then kept[#kept + 1] = trimmed end
   end
 
   if #kept == 0 then return nil end
@@ -161,11 +180,17 @@ for _, name in ipairs(FORWARDED_HEADERS) do
   end
 end
 
--- One cookie by name: the Cookie header itself is the site's and stays there.
+-- Our two cookies by name, each as a header of its own; the Cookie header itself
+-- is the site's and stays there.
 local cookie_header = header_value("cookie")
-local session_cookie = read_session_cookie(cookie_header)
+local session_cookie = read_cookie(cookie_header, PAY_SESSION_COOKIE)
 if session_cookie ~= nil and #session_cookie > 0 and #session_cookie <= PAY_SESSION_MAX_LEN then
   fwd_headers[PAY_SESSION_HEADER] = session_cookie
+end
+
+local person_pass = read_cookie(cookie_header, PERSON_PASS_COOKIE)
+if person_pass ~= nil and #person_pass > 0 and #person_pass <= PERSON_PASS_MAX_LEN then
+  fwd_headers[PERSON_PASS_HEADER] = person_pass
 end
 
 -- All three places a credential rides. Miss one and a redemption gets the
@@ -210,6 +235,7 @@ end
 
 local payload = {
   requestId = ngx.var.request_id,            -- nginx's per-request id (32 hex chars)
+  adapterSet = ADAPTER_SET,
   ip        = ngx.var.remote_addr,           -- or parse X-Forwarded-For behind an LB
   method    = ngx.req.get_method(),          -- -> @method
   url       = ngx.var.request_uri,           -- raw path + query -> @path / @query
@@ -322,17 +348,18 @@ end
 for name, _ in pairs(PAYMENT_HEADERS) do
   ngx.req.clear_header(name)
 end
+ngx.req.clear_header(PERSON_PASS_HEADER)
 
-if session_cookie ~= nil then
-  local kept = strip_session_cookie(cookie_header)
+if session_cookie ~= nil or person_pass ~= nil then
+  local kept = strip_own_cookies(cookie_header)
   if kept == nil then ngx.req.clear_header("Cookie") else ngx.req.set_header("Cookie", kept) end
 end
 
 -- $args, not ngx.req.set_uri_args(): that escapes what it is handed, so a query
 -- value already carrying a %XX would reach the upstream double-encoded. Both
 -- clear valid_unparsed_uri, which is what makes proxy_pass rebuild the target.
-if ngx.var.args ~= nil and string.find(ngx.var.args, PAY_HANDOFF_PARAM, 1, true) ~= nil then
-  ngx.var.args = strip_handoff_param(ngx.var.args)
+if ngx.var.args ~= nil and string.find(ngx.var.args, "d3pay_", 1, true) ~= nil then
+  ngx.var.args = strip_pay_params(ngx.var.args)
 end
 
 apply_payment_headers(payment and payment.headers)

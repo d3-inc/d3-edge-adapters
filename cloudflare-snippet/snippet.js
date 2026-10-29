@@ -72,8 +72,26 @@ const PAY_SESSION_HEADER = 'd3pay-session';
 
 const PAY_SESSION_MAX_LENGTH = 64;
 
+// The browser check's pass (ADR 0057), and the header it travels under. Not a
+// payment: it never buys the payment budget, and it is stripped from the origin.
+const PERSON_PASS_COOKIE = '__Host-d3person';
+
+const PERSON_PASS_HEADER = 'd3pay-person';
+
+const PERSON_PASS_MAX_LENGTH = 64;
+
 // Where the credential rides for a caller with no cookie jar.
 const PAY_HANDOFF_PARAM = 'd3pay_handoff';
+
+// The other two params of ours a visitor's navigation can carry back.
+const PAY_AUTH_CHECK_PARAM = 'd3pay_check';
+
+const BROWSER_CHECK_PARAM = 'd3pay_browser';
+
+// What this recipe does with the endpoint's answer (ADR 0067). Bump it only
+// with the behaviour: the worker reads it to decide whether a browser check can
+// finish here, and a copy that drops any of the three below must not claim 1.
+const ADAPTER_SET = 1;
 
 const HANDOFF_ID_LENGTH = 22;
 
@@ -156,7 +174,7 @@ function requestPresentsPayment(request) {
     if (value !== null && value.length > 0 && value.length <= cap) return true;
   }
 
-  const cookie = readSessionCookie(request.headers.get('cookie'));
+  const cookie = readCookie(request.headers.get('cookie'), PAY_SESSION_COOKIE);
   if (cookie !== null && cookie.length > 0 && cookie.length <= PAY_SESSION_MAX_LENGTH) return true;
 
   return handoffFromUrl(request.url) !== null;
@@ -182,34 +200,43 @@ function handoffFromUrl(url) {
   return value !== null && isWellFormedHandoff(value) ? value : null;
 }
 
-function stripHandoffParam(url) {
+// Every param of ours, so none of them reaches the origin as a cache key or a
+// line in its access log.
+function stripPayParams(url) {
   const query = url.indexOf('?');
   if (query === -1) return url;
 
   const params = new URLSearchParams(url.slice(query + 1));
-  params.delete(PAY_HANDOFF_PARAM);
+  for (const name of [PAY_HANDOFF_PARAM, PAY_AUTH_CHECK_PARAM, BROWSER_CHECK_PARAM]) params.delete(name);
   const rest = params.toString();
   return rest ? `${url.slice(0, query)}?${rest}` : url.slice(0, query);
 }
 
-function readSessionCookie(cookieHeader) {
+// One of our cookies as a header of its own, when it is there and short enough.
+function forwardCookie(headers, cookieHeader, cookie, header, maxLength) {
+  const value = readCookie(cookieHeader, cookie);
+  if (value !== null && value.length > 0 && value.length <= maxLength) headers[header] = value;
+}
+
+function readCookie(cookieHeader, name) {
   if (!cookieHeader) return null;
   for (const part of cookieHeader.split(';')) {
     const eq = part.indexOf('=');
     if (eq === -1) continue;
 
-    if (part.slice(0, eq).trim() === PAY_SESSION_COOKIE) return part.slice(eq + 1).trim();
+    if (part.slice(0, eq).trim() === name) return part.slice(eq + 1).trim();
   }
 
   return null;
 }
 
-// The Cookie header with our cookie removed, or null when nothing is left.
-function stripSessionCookie(cookieHeader) {
+// The Cookie header with both of ours removed, or null when nothing is left.
+function stripOwnCookies(cookieHeader) {
+  const ours = [PAY_SESSION_COOKIE, PERSON_PASS_COOKIE];
   const kept = cookieHeader
     .split(';')
     .map((part) => part.trim())
-    .filter((part) => part.length > 0 && !part.startsWith(`${PAY_SESSION_COOKIE}=`));
+    .filter((part) => part.length > 0 && !ours.some((name) => part.startsWith(`${name}=`)));
   return kept.length > 0 ? kept.join('; ') : null;
 }
 
@@ -217,16 +244,17 @@ function stripSessionCookie(cookieHeader) {
 // payment, and it still must not reach the origin.
 function stripPaymentCredential(request) {
   const cookie = request.headers.get('cookie');
-  const hasCookie = cookie !== null && readSessionCookie(cookie) !== null;
-  const url = stripHandoffParam(request.url);
+  const ours = [PAY_SESSION_COOKIE, PERSON_PASS_COOKIE];
+  const hasCookie = cookie !== null && ours.some((name) => readCookie(cookie, name) !== null);
+  const url = stripPayParams(request.url);
   const hasHeader = PAYMENT_HEADERS.some((name) => request.headers.has(name));
   if (!hasCookie && !hasHeader && url === request.url) return request;
 
   const headers = new Headers(request.headers);
-  for (const name of PAYMENT_HEADERS) headers.delete(name);
+  for (const name of [...PAYMENT_HEADERS, PERSON_PASS_HEADER]) headers.delete(name);
 
   if (hasCookie) {
-    const kept = stripSessionCookie(cookie);
+    const kept = stripOwnCookies(cookie);
     if (kept === null) headers.delete('cookie');
     else headers.set('cookie', kept);
   }
@@ -332,11 +360,10 @@ async function extractPayload(request) {
     headers[name] = value;
   }
 
-  // One cookie by name: the `Cookie` header itself is the site's and stays there.
-  const session = readSessionCookie(request.headers.get('cookie'));
-  if (session !== null && session.length > 0 && session.length <= PAY_SESSION_MAX_LENGTH) {
-    headers[PAY_SESSION_HEADER] = session;
-  }
+  // Our two cookies by name, each as a header of its own; the `Cookie` header itself is the site's and stays there.
+  const cookieHeader = request.headers.get('cookie');
+  forwardCookie(headers, cookieHeader, PAY_SESSION_COOKIE, PAY_SESSION_HEADER, PAY_SESSION_MAX_LENGTH);
+  forwardCookie(headers, cookieHeader, PERSON_PASS_COOKIE, PERSON_PASS_HEADER, PERSON_PASS_MAX_LENGTH);
 
   // Overwrite content-digest with the real body's digest so a tampered body
   // fails verification downstream — never forward the client's claim. A body
@@ -357,6 +384,7 @@ async function extractPayload(request) {
 
   return {
     requestId: crypto.randomUUID(),
+    adapterSet: ADAPTER_SET,
     ip: request.headers.get('cf-connecting-ip') ?? undefined,
     method: request.method,
     url: url.pathname + url.search,
