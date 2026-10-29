@@ -10,7 +10,7 @@ them). Same decision, same `403`, same fail-open as the worker installs.
 
 1. In the Cloudflare dashboard: your zone → **Rules → Snippets →
    Create a Snippet**.
-2. Paste [`snippet.js`](./snippet.js) and fill in `adapterKey` — create
+2. Paste [`snippet.js`](./snippet.js) and fill in `apiKey` — create
    the key at
    [dashboard.d3.com/keys](https://dashboard.d3.com/keys) — plus
    anything else in `CONFIG` you want to change.
@@ -25,15 +25,21 @@ response carries an `x-d3-edge` header once it is.
 `CONFIG` at the top of the file, mapping onto the worker adapters'
 variables where they exist:
 
-| Constant             | Worker equivalent            | Default | What it does                                                                              |
-| -------------------- | ---------------------------- | ------- | ----------------------------------------------------------------------------------------- |
-| `policyWorkerUrl`    | `POLICY_WORKER_URL`          | set     | Decision endpoint. **Empty string means pure passthrough.**                               |
-| `adapterKey`         | `POLICY_ADAPTER_KEY`         | —       | Your org's key, bearer for the decision call.                                             |
-| `timeoutMs`          | `POLICY_TIMEOUT_MS`          | `150`   | Hard budget for the decision call.                                                        |
-| `paymentTimeoutMs`   | `POLICY_PAYMENT_TIMEOUT_MS`  | `10000` | Budget for a request presenting a payment — settlement happens inside it.                 |
-| `failMode`           | `FAIL_MODE`                  | `open`  | `open`: pass traffic when the call fails. `closed`: block instead.                        |
-| `sampleRate`         | —                            | `1`     | Fraction of requests that get a decision call. Unsampled requests return untouched.       |
-| `alwaysSampleSigned` | —                            | `false` | Call on every request carrying signature headers, whatever `sampleRate` says.             |
+| Constant             | Worker equivalent        | Default                               | What it does                                                                        |
+| -------------------- | ------------------------ | ------------------------------------- | ----------------------------------------------------------------------------------- |
+| `apiKey`             | `DNA_API_KEY`            | —                                     | Your org's key, bearer for the decision call. Unset means pure passthrough.         |
+| `enabled`            | `DNA_ENABLED`            | `true`                                | `false` turns DNA off without removing the key: pure passthrough.                   |
+| `failMode`           | `DNA_FAIL_MODE`          | `open`                                | `open`: pass traffic when the call fails. `closed`: block instead.                  |
+| `timeoutMs`          | `DNA_TIMEOUT_MS`         | `150`                                 | Hard budget for the decision call.                                                  |
+| `paymentTimeoutMs`   | `DNA_PAYMENT_TIMEOUT_MS` | `10000`                               | Budget for a request presenting a payment — settlement happens inside it.           |
+| `endpoint`           | `DNA_ENDPOINT`           | `https://edge-api.d3.com/v1/decision` | Decision endpoint, not in `CONFIG` by default. Add it only if we give you another.  |
+| `sampleRate`         | —                        | `1`                                   | Fraction of requests that get a decision call. Unsampled requests return untouched. |
+| `alwaysSampleSigned` | —                        | `false`                               | Call on every request carrying signature headers, whatever `sampleRate` says.       |
+
+A `CONFIG` from an earlier copy of this file still works pasted into this
+one: `adapterKey` is read as `apiKey`, and `policyWorkerUrl` as `endpoint`.
+An earlier copy itself ignores `enabled`; its off switch is an empty
+`policyWorkerUrl`.
 
 `ORIGIN` and `ORIGIN_URL` don't exist here: pass-traffic continues to
 whatever your zone already routes to.
