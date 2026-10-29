@@ -33,7 +33,7 @@ opm get ledgetech/lua-resty-http
 3. Set the environment variables where nginx starts (systemd unit,
    container env), with your API key — created at
    [dashboard.d3.com/keys](https://dashboard.d3.com/keys) — in
-   `POLICY_ADAPTER_KEY`. Reload nginx.
+   `DNA_API_KEY`. That is the only variable DNA needs. Reload nginx.
 
 Check it's live with `curl -sI https://www.example.com/` — every
 response carries an `x-d3-edge` header once it is.
@@ -44,13 +44,34 @@ The script reads these from the environment nginx starts with — each
 one needs its `env` line in the main context, or nginx hides it from
 Lua:
 
-| Variable                    | Type                 | Default | What it does                                                                  |
-| --------------------------- | -------------------- | ------- | ----------------------------------------------------------------------------- |
-| `POLICY_WORKER_URL`         | string (URL)         | unset   | Decision endpoint. **Unset means pure passthrough**: the script does nothing. |
-| `POLICY_ADAPTER_KEY`        | string               | unset   | Your org's key, bearer for the decision call.                                 |
-| `POLICY_TIMEOUT_MS`         | number (ms)          | `150`   | Hard budget for the decision call.                                            |
-| `POLICY_PAYMENT_TIMEOUT_MS` | number (ms)          | `10000` | Budget for a request presenting a payment — settlement happens inside it.     |
-| `FAIL_MODE`                 | `"open" \| "closed"` | `open`  | `open`: pass traffic when the call fails. `closed`: block instead.            |
+| Variable                 | Type                 | Default                               | What it does                                                                  |
+| ------------------------ | -------------------- | ------------------------------------- | ----------------------------------------------------------------------------- |
+| `DNA_API_KEY`            | string               | unset                                 | Your org's key, bearer for the decision call. **Unset means pure passthrough**: the script does nothing. |
+| `DNA_ENABLED`            | `"false"`            | unset                                 | `false` turns DNA off without removing the key. Any other value leaves it on. |
+| `DNA_FAIL_MODE`          | `"open" \| "closed"` | `open`                                | `open`: pass traffic when the call fails. `closed`: block instead.            |
+| `DNA_TIMEOUT_MS`         | number (ms)          | `150`                                 | Hard budget for the decision call.                                            |
+| `DNA_PAYMENT_TIMEOUT_MS` | number (ms)          | `10000`                               | Budget for a request presenting a payment — settlement happens inside it.     |
+| `DNA_ENDPOINT`           | string (URL)         | `https://edge-api.d3.com/v1/decision` | Decision endpoint. Leave unset unless we give you another.                    |
+
+### Earlier names
+
+An install set up with the earlier names keeps working, and a `DNA_` name
+wins when both are set. With the earlier names, `POLICY_WORKER_URL` is still
+what switches DNA on.
+
+| Earlier name                | Now                          |
+| --------------------------- | ---------------------------- |
+| `POLICY_ADAPTER_KEY`        | `DNA_API_KEY`                |
+| `POLICY_WORKER_URL`         | `DNA_ENDPOINT`, now optional |
+| `POLICY_TIMEOUT_MS`         | `DNA_TIMEOUT_MS`             |
+| `POLICY_PAYMENT_TIMEOUT_MS` | `DNA_PAYMENT_TIMEOUT_MS`     |
+| `FAIL_MODE`                 | `DNA_FAIL_MODE`              |
+
+To move over, take this directory's script and `env` lines, rename each
+variable, and drop `POLICY_WORKER_URL`. If you turned DNA off by leaving
+`POLICY_WORKER_URL` unset, set `DNA_ENABLED=false` first: `DNA_API_KEY`
+switches DNA on by itself. A script older than this one ignores
+`DNA_ENABLED`; unset `POLICY_WORKER_URL` to turn it off.
 
 ## Response shape
 
@@ -79,10 +100,10 @@ presents a credential:
   on its own; the rest of the visitor's `Cookie` header stays on your
   server. A `Payment-Authorization` header or a `?d3pay_handoff=` on the
   URL works the same way for an agent with no cookie jar.
-- **A paying request gets its own budget.** `POLICY_PAYMENT_TIMEOUT_MS`
-  (10 s) rather than `POLICY_TIMEOUT_MS`, because settlement happens
+- **A paying request gets its own budget.** `DNA_PAYMENT_TIMEOUT_MS`
+  (10 s) rather than `DNA_TIMEOUT_MS`, because settlement happens
   inside that call.
-- **A paying request never falls open.** Whatever `FAIL_MODE` says, a
+- **A paying request never falls open.** Whatever `DNA_FAIL_MODE` says, a
   failed decision call on a request carrying a credential answers `502
   {"error":"payment_unavailable"}`. The page is priced and the charge may
   already have landed; serving it free is the one wrong answer.

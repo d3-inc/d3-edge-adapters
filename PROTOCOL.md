@@ -209,7 +209,7 @@ cap is not a payment.
 A request presenting a payment gets a second, much larger timeout —
 **10 s**, against the hot path's. Settlement happens inside that call and
 the caller is waiting for it. The hot-path budget on a redemption is a
-guaranteed timeout, and with `FAIL_MODE=closed` a guaranteed `403` for
+guaranteed timeout, and with `DNA_FAIL_MODE=closed` a guaranteed `403` for
 someone who just paid.
 
 ### The answer

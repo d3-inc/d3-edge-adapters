@@ -23,15 +23,44 @@ local cjson  = require "cjson.safe"
 local sha256 = require "resty.sha256"
 
 -- ── Configuration (each var needs an `env` line in nginx.conf's main context) ─
-local POLICY_WORKER_URL   = os.getenv("POLICY_WORKER_URL")
-local ADAPTER_KEY         = os.getenv("POLICY_ADAPTER_KEY")
-local TIMEOUT_MS          = tonumber(os.getenv("POLICY_TIMEOUT_MS") or "150")
--- Seconds, not the hot path's milliseconds: settlement happens inside the call.
-local PAYMENT_TIMEOUT_MS  = tonumber(os.getenv("POLICY_PAYMENT_TIMEOUT_MS") or "10000")
-local FAIL_MODE           = os.getenv("FAIL_MODE") or "open" -- 'open' | 'closed'
+-- The earlier name is what an install used before the DNA_ prefix, still read
+-- so it keeps working unchanged. Empty counts as unset, so a blank DNA_ line
+-- (`${DNA_API_KEY}` with nothing behind it) can't hide a working earlier one.
+local function non_empty(value)
+  if value == "" then return nil end
+  return value
+end
 
--- Kill switch, same as every adapter: no endpoint means pure passthrough.
-if not POLICY_WORKER_URL or POLICY_WORKER_URL == "" then
+local function setting(name, earlier_name)
+  local value = non_empty(os.getenv(name))
+  if value == nil and earlier_name then value = non_empty(os.getenv(earlier_name)) end
+  return value
+end
+
+local DEFAULT_ENDPOINT    = "https://edge-api.d3.com/v1/decision"
+local API_KEY             = setting("DNA_API_KEY", "POLICY_ADAPTER_KEY")
+local TIMEOUT_MS          = tonumber(setting("DNA_TIMEOUT_MS", "POLICY_TIMEOUT_MS") or "150")
+-- Seconds, not the hot path's milliseconds: settlement happens inside the call.
+local PAYMENT_TIMEOUT_MS  = tonumber(setting("DNA_PAYMENT_TIMEOUT_MS", "POLICY_PAYMENT_TIMEOUT_MS") or "10000")
+local FAIL_MODE           = setting("DNA_FAIL_MODE", "FAIL_MODE") or "open" -- 'open' | 'closed'
+
+-- The on switch, same as every adapter: an endpoint, or a DNA_API_KEY that then
+-- calls the default one. POLICY_ADAPTER_KEY alone stays off: an install that
+-- predates DNA_API_KEY may hold it with the URL unset precisely to stay off.
+local function dna_endpoint()
+  local enabled = os.getenv("DNA_ENABLED")
+  if enabled and enabled:lower():match("^%s*false%s*$") then return nil end
+
+  -- Unlike every other setting, an empty endpoint is meaningful: it is off.
+  local endpoint = os.getenv("DNA_ENDPOINT")
+  if endpoint == nil then endpoint = os.getenv("POLICY_WORKER_URL") end
+  if endpoint ~= nil then return non_empty(endpoint) end
+
+  return non_empty(os.getenv("DNA_API_KEY")) and DEFAULT_ENDPOINT or nil
+end
+
+local ENDPOINT = dna_endpoint()
+if not ENDPOINT then
   ngx.header["x-d3-edge"] = "disabled"
   return
 end
@@ -222,13 +251,13 @@ local payload = {
 local httpc = http.new()
 httpc:set_timeout(paying and PAYMENT_TIMEOUT_MS or TIMEOUT_MS)
 
-local res, err = httpc:request_uri(POLICY_WORKER_URL, {
+local res, err = httpc:request_uri(ENDPOINT, {
   method     = "POST",
   body       = cjson.encode(payload),
   ssl_verify = true,
   headers    = {
     ["Content-Type"]  = "application/json",
-    ["Authorization"] = ADAPTER_KEY and ("Bearer " .. ADAPTER_KEY) or nil,
+    ["Authorization"] = API_KEY and ("Bearer " .. API_KEY) or nil,
   },
 })
 

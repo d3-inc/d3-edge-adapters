@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import snippetDefault, { createSnippet, type SnippetConfig } from './snippet.js';
+import snippetDefault, { createSnippet, dnaEndpoint, type SnippetConfig } from './snippet.js';
 
 // Mirrors ClientDecision / RequestPayload from @d3-inc/d3-edge-core — inlined
 // so this repo has no dependency beyond vitest.
@@ -39,8 +39,7 @@ const POLICY_URL = 'https://edge-api.d3.com/v1/decision';
 const KEY = 'd3_k_' + 'a'.repeat(43) + 'AAAAAA';
 
 const BASE_CONFIG: SnippetConfig = {
-  policyWorkerUrl: POLICY_URL,
-  adapterKey: KEY,
+  apiKey: KEY,
   timeoutMs: 1000,
   paymentTimeoutMs: 5000,
   failMode: 'open',
@@ -451,14 +450,56 @@ describe('traffic sampling', () => {
   });
 });
 
+describe('dnaEndpoint', () => {
+  it('should call the default endpoint when the API key is all there is', () => {
+    expect(dnaEndpoint({ ...BASE_CONFIG })).toBe(POLICY_URL);
+  });
+
+  it('should stay off with no key and no endpoint, on an empty endpoint, and on enabled: false', () => {
+    expect(dnaEndpoint({ ...BASE_CONFIG, apiKey: undefined })).toBeUndefined();
+    expect(dnaEndpoint({ ...BASE_CONFIG, endpoint: '' })).toBeUndefined();
+    expect(dnaEndpoint({ ...BASE_CONFIG, enabled: false })).toBeUndefined();
+  });
+
+  it("should turn off on a pasted string 'false', as the npm adapters do", () => {
+    expect(dnaEndpoint({ ...BASE_CONFIG, enabled: 'false' as unknown as boolean })).toBeUndefined();
+  });
+
+  it('should run a CONFIG pasted with the earlier names exactly as before', () => {
+    const legacy = { ...BASE_CONFIG, apiKey: undefined, policyWorkerUrl: POLICY_URL, adapterKey: KEY };
+    expect(dnaEndpoint(legacy)).toBe(POLICY_URL);
+    expect(dnaEndpoint({ ...legacy, policyWorkerUrl: '' })).toBeUndefined();
+    expect(dnaEndpoint({ ...legacy, policyWorkerUrl: undefined })).toBeUndefined();
+  });
+});
+
 describe('snippet-specific behavior', () => {
-  it('should pass straight through when no policy worker is configured', async () => {
+  it('should pass straight through on an empty endpoint', async () => {
     const log = stubOutbound({ action: 'pass' });
-    const res = await run(siteRequest(), { policyWorkerUrl: '' });
+    const res = await run(siteRequest(), { endpoint: '' });
     expect(res.status).toBe(200);
     expect(res.headers.get('x-d3-edge')).toBe('disabled');
     expect(log.policyCalls).toHaveLength(0);
     expect(log.originCalls).toHaveLength(1);
+  });
+
+  it('should pass straight through under enabled: false', async () => {
+    const log = stubOutbound({ action: 'block' });
+    const res = await run(siteRequest(), { enabled: false });
+    expect(res.headers.get('x-d3-edge')).toBe('disabled');
+    expect(log.policyCalls).toHaveLength(0);
+  });
+
+  it('should send an earlier CONFIG\'s adapterKey as the bearer', async () => {
+    const log = stubOutbound({ action: 'pass' });
+    await run(siteRequest(), { apiKey: undefined, policyWorkerUrl: POLICY_URL, adapterKey: KEY });
+    expect(log.policyCalls[0].headers.get('authorization')).toBe(`Bearer ${KEY}`);
+  });
+
+  it('should not let an empty apiKey hide an earlier CONFIG\'s adapterKey', async () => {
+    const log = stubOutbound({ action: 'pass' });
+    await run(siteRequest(), { apiKey: '', policyWorkerUrl: POLICY_URL, adapterKey: KEY });
+    expect(log.policyCalls[0].headers.get('authorization')).toBe(`Bearer ${KEY}`);
   });
 
   it('should make no subrequests beyond the decision call and the origin', async () => {
